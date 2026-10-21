@@ -49,7 +49,7 @@ export function ModeCards({ onPlay }: { onPlay: (m: Mode) => void }) {
                 <dd>{copy.advantage}</dd>
               </div>
               <div>
-                <dt>AI opponent</dt>
+                <dt>Captain Brammer</dt>
                 <dd>{copy.difficulty}</dd>
               </div>
             </dl>
@@ -75,7 +75,7 @@ export function Home({ onPlay, onViewLeaderboard }: { onPlay: (m: Mode) => void;
           Brammers <span className="accent">BattleFleet</span> AI
         </h1>
         <p className="lead">
-          Classic Battleship against an AI admiral, played three ways. <strong>Devin</strong> does the work autonomously. <strong>Code Assist</strong> helps you do it.
+          Classic Battleship against Captain Brammer, an AI admiral, played three ways. <strong>Devin</strong> does the work autonomously. <strong>Code Assist</strong> helps you do it.
           With <strong>Traditional Coding</strong>, you find and do all of it yourself. The leaderboard shows which one wins.
         </p>
         <div className="hero-actions">
@@ -115,7 +115,7 @@ export function Home({ onPlay, onViewLeaderboard }: { onPlay: (m: Mode) => void;
           <li>
             <span className="step-n">3</span>
             <h3>Take turns firing</h3>
-            <p className="muted">One shot per turn, alternating with the AI. Only your own shots count as human turns. The timer runs until the last enemy ship sinks.</p>
+            <p className="muted">One shot per turn, alternating with Captain Brammer. Only your own shots count as human turns. The timer runs until the last enemy ship sinks.</p>
           </li>
           <li>
             <span className="step-n">4</span>

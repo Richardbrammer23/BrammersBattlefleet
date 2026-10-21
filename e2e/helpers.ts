@@ -32,8 +32,8 @@ export async function createProfile(page: Page, name: string, opts: { customiseA
   return code;
 }
 
-export async function startGame(page: Page, mode: Mode, seed: number) {
-  await page.goto(`/?testSeed=${seed}`);
+export async function startGame(page: Page, mode: Mode, seed: number, fastAi = true) {
+  await page.goto(`/?testSeed=${seed}${fastAi ? '&fastAi=1' : ''}`);
   await page.getByTestId(`play-${mode}`).click();
   await page.getByTestId('randomise').click();
   await page.getByTestId('start-battle').click();
@@ -46,7 +46,11 @@ export const enemyCell = (page: Page, r: number, c: number) => page.locator(`[da
 export async function fire(page: Page, r: number, c: number) {
   const cell = enemyCell(page, r, c);
   await cell.click();
-  await expect(cell).toHaveAttribute('data-state', /miss|hit|sunk/);
+  // A winning shot can switch straight to the result screen (reduced motion), removing the board.
+  await expect(async () => {
+    if (await page.getByTestId('result').isVisible()) return;
+    expect(await cell.getAttribute('data-state', { timeout: 500 })).toMatch(/miss|hit|sunk/);
+  }).toPass();
   await expect(page.getByTestId('turn-indicator').or(page.getByTestId('result'))).toContainText(/Your turn|Victory|Defeat/);
 }
 

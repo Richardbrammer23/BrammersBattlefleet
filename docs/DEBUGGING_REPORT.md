@@ -8,9 +8,9 @@ Every defect below was actually hit during development and fixed. None were inve
 | --- | --- | --- |
 | Type check | `npm run typecheck` | Pass, 0 errors |
 | Lint | `npm run lint` | Pass, 0 problems |
-| Unit + API/DB tests | `npm test` | **55 / 55 passed** (37 engine, 18 API) |
-| Browser tests | `npm run test:e2e` | **11 / 11 passed** (10 desktop at 1440×900, 1 mobile on Pixel 7) |
-| Production build | `npm run build` | Pass. JS 245 kB (77 kB gzip), CSS 22 kB |
+| Unit + API/DB tests | `npm test` | **57 / 57 passed** (39 engine, 18 API) |
+| Browser tests | `npm run test:e2e` | **14 / 14 passed** (13 desktop at 1440×900, 1 mobile on Pixel 7) |
+| Production build | `npm run build` | Pass. JS 250 kB (79 kB gzip), CSS 23 kB |
 | AI simulation | `npm run simulate -- 5000` | See below |
 
 ### What the browser tests cover
@@ -24,6 +24,9 @@ Every defect below was actually hit during development and fixed. None were inve
 - **Traditional:** the board has 225 cells and no highlights. A repeat shot is blocked and doesn't add a turn. The keyboard works (arrow keys move focus, Enter fires). The timer runs.
 - **Traditional loss:** a player who only misses is defeated by the Hard AI and isn't ranked.
 - An in-progress game resumes after a reload. Restart abandons it.
+- **Two-click placement:** the first square shows only the directions that fit; a second square in the same row or column (adjacent or further away) fills the ship in right, down, left or up. Clicking the first square again cancels. All 17 cells get placed.
+- **Captain Brammer's turn:** his reply takes at least 1.9 s (normal speed, no test shortcut), the HUD reads "Captain Brammer is targeting…", and his hit/miss message is shown.
+- **Leaderboard play again:** the full leaderboard offers "Play again — Traditional Coding" after a Traditional game and opens the 15×15 placement screen.
 - **Mobile:** the 15×15 board fits a 412 px viewport with cells at least 19 px, there's no horizontal scroll, and the fleet/enemy toggle works.
 
 ### AI simulation (shots for each AI to sink a random fleet, 5,000 seeded games per row)
@@ -105,6 +108,24 @@ The difficulty order holds (Easy > Medium > Hard shots needed) on both board siz
 - **Symptom:** the test timed out clicking a cell it had already fired at.
 - **Root cause:** the UI marks fired cells `aria-disabled`, which Playwright treats as not clickable. The UI was already blocking the duplicate, which is the behaviour the requirement asks for.
 - **Fix:** the test now checks `aria-disabled="true"`, force-clicks, and confirms the turn counter doesn't change. The server-side duplicate rejection is covered separately by an API test.
+
+### 12. Hit/miss messages vanished almost instantly with reduced motion (accessibility)
+- **Symptom:** the new browser test for Captain Brammer's reply couldn't find his "missed at …" message, even though his shot had landed on the board.
+- **Root cause:** toasts were hidden with the same timer helper as animations. That helper shortens every delay to 80 ms when the player prefers reduced motion, so the shot messages were gone before anyone could read them. It had been like this since the first version; no earlier test checked toast text.
+- **Fix:** toasts now always stay on screen for 2.2 s. Reduced motion still shortens the animations.
+- **Verified:** the Captain Brammer test now finds the message (the browser tests run with reduced motion on).
+
+### 13. Fast test mode for Captain Brammer's delay was ignored (test harness)
+- **Symptom:** after adding the 2-second delay, the Devin win test failed and the Traditional loss test timed out.
+- **Root cause:** the delay was read once, when the battle code loaded. The dev-only `?fastAi=1` flag is saved when the app first renders, which is later, so tests always got the full 2 s per turn.
+- **Fix:** the delay is now read at the start of each of Captain Brammer's turns.
+- **Verified:** the full suite runs at its old speed. Production always uses 2 s: the fast flag only exists in dev builds and isn't in the production bundle.
+
+### 14. The E2E `fire` step raced the victory screen (test design)
+- **Symptom:** the Devin win test failed now and then because the cell it had just fired at was "not found". In repeated runs the Traditional loss test also timed out waiting for the HUD.
+- **Root cause:** with reduced motion, the result screen replaces the battle screen 80 ms after the last shot. The board and HUD disappear, and the tests sometimes looked for them after they were gone.
+- **Fix:** the `fire` helper accepts either the updated cell or the result screen. The loss loop stops when the result screen is showing or the HUD reads "Defeat".
+- **Verified:** the loss test passed 4 repeated runs, and the full browser suite passes.
 
 ## Security review summary
 - The enemy fleet and unused assistance targets never leave the server while a game is active (engine test plus `publicGame()`).

@@ -96,3 +96,30 @@ export function randomFleet(size: number, rng: Rng): Fleet {
 export function shipAt(fleet: Fleet, p: Coord): PlacedShip | undefined {
   return fleet.find((s) => shipCells(s).some((q) => q.r === p.r && q.c === p.c));
 }
+
+/**
+ * Two-click placement: the ship starts at `anchor` and extends towards `toward`, which must share a row or
+ * column with it. Returns null when the two squares aren't in line. Bounds and overlaps are not checked here.
+ */
+export function shipTowards(id: ShipId, anchor: Coord, toward: Coord): PlacedShip | null {
+  const back = LENGTHS[id] - 1;
+  if (anchor.r === toward.r && anchor.c !== toward.c) {
+    return { id, r: anchor.r, c: toward.c > anchor.c ? anchor.c : anchor.c - back, orientation: 'H' };
+  }
+  if (anchor.c === toward.c && anchor.r !== toward.r) {
+    return { id, r: toward.r > anchor.r ? anchor.r : anchor.r - back, c: anchor.c, orientation: 'V' };
+  }
+  return null;
+}
+
+/** Every legal placement of `id` that starts at `anchor` (right, down, left, up). */
+export function shipOptions(fleet: Fleet, id: ShipId, anchor: Coord, size: number): PlacedShip[] {
+  return [
+    [0, 1],
+    [1, 0],
+    [0, -1],
+    [-1, 0],
+  ]
+    .map(([dr, dc]) => shipTowards(id, anchor, { r: anchor.r + dr, c: anchor.c + dc })!)
+    .filter((s) => !placementError(fleet, s, size));
+}

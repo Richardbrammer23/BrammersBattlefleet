@@ -4,7 +4,7 @@ import { MODES, shipCells, SHIPS, type AssistDecision, type PublicGame, type Sho
 import { Avatar } from './Avatar';
 import { Board, type CellView } from './Board';
 import { CodeAssistBot, DevinMark } from './Characters';
-import { cellLabel, formatDuration, prefersReducedMotion } from './format';
+import { cellLabel, formatDuration, OPPONENT, prefersReducedMotion } from './format';
 import { Leaderboard } from './Leaderboard';
 import { play } from './sound';
 
@@ -18,6 +18,10 @@ interface Props {
 }
 
 type IntroStage = 'appear' | 'offer' | 'merging' | 'autonomous' | 'outcome' | 'done';
+
+/** Captain Brammer "thinks" for about as long as a human would. Not shortened for reduced motion, so ranked times stay comparable. */
+// Read per turn: App stores the dev-only fast flag after this module has loaded.
+const aiTurnMs = () => (import.meta.env.DEV && sessionStorage.getItem('bbf.fastAi') === '1' ? 60 : 2000);
 
 const COPY = {
   devinOffer:
@@ -74,7 +78,8 @@ export function Battle({ gameId, initial, player, onFinished, onRestart, onHome 
 
   const showToast = (text: string, kind: string) => {
     setToast({ text, kind });
-    later(() => setToast((t) => (t?.text === text ? null : t)), 1800);
+    // Not shortened for reduced motion: the message still needs time to be read.
+    timers.current.push(window.setTimeout(() => setToast((t) => (t?.text === text ? null : t)), 2200));
   };
 
   const decide = async (decision: AssistDecision) => {
@@ -135,7 +140,7 @@ export function Battle({ gameId, initial, player, onFinished, onRestart, onHome 
     try {
       const res = await api.fire(gameId, { r, c });
       const prevAi = game.aiShots.length;
-      // Show the human's shot first, then the AI "thinking" before revealing its reply.
+      // Show the human's shot first, then Captain Brammer "thinking" before revealing his reply.
       setGame({ ...res.game, aiShots: res.game.aiShots.slice(0, prevAi) });
       setLastShots({ player: `${r},${c}` });
       const ps = res.playerShot;
@@ -153,21 +158,27 @@ export function Battle({ gameId, initial, player, onFinished, onRestart, onHome 
         return;
       }
       setAiThinking(true);
-      later(() => {
-        setGame(res.game);
-        setAiThinking(false);
-        const ai = res.aiShot!;
-        setLastShots({ player: `${r},${c}`, ai: `${ai.r},${ai.c}` });
-        if (ai.result !== 'miss') {
-          play(ai.result === 'sunk' ? 'sunk' : 'hit');
+      const delay = aiTurnMs();
+      if (delay > 600) timers.current.push(window.setTimeout(() => play('incoming'), delay - 500));
+      timers.current.push(
+        window.setTimeout(() => {
+          setGame(res.game);
+          setAiThinking(false);
+          const ai = res.aiShot!;
+          setLastShots({ player: `${r},${c}`, ai: `${ai.r},${ai.c}` });
+          play(ai.result === 'sunk' ? 'enemySunk' : ai.result === 'hit' ? 'enemyHit' : 'enemyMiss');
           showToast(
-            ai.result === 'sunk' ? `The enemy sank your ${SHIPS.find((s) => s.id === ai.sunkShip)?.name}!` : `Enemy hit your fleet at ${cellLabel(ai.r, ai.c)}!`,
-            'enemy',
+            ai.result === 'sunk'
+              ? `${OPPONENT} sank your ${SHIPS.find((s) => s.id === ai.sunkShip)?.name}!`
+              : ai.result === 'hit'
+                ? `${OPPONENT} hit your fleet at ${cellLabel(ai.r, ai.c)}!`
+                : `${OPPONENT} missed at ${cellLabel(ai.r, ai.c)}.`,
+            ai.result === 'miss' ? 'enemy-miss' : 'enemy',
           );
-        }
-        if (res.game.phase === 'lost') later(() => onFinished({ gameId, game: res.game, victory: null }), 1200);
-        else busy.current = false;
-      }, 650);
+          if (res.game.phase === 'lost') later(() => onFinished({ gameId, game: res.game, victory: null }), 1200);
+          else busy.current = false;
+        }, delay),
+      );
     } catch (e) {
       setError(errorMessage(e));
       busy.current = false;
@@ -251,7 +262,7 @@ export function Battle({ gameId, initial, player, onFinished, onRestart, onHome 
         <div className={`turn-indicator ${yourTurn ? 'yours' : 'theirs'}`} aria-live="polite" data-testid="turn-indicator">
           {game.phase === 'briefing' ? 'Briefing' : aiThinking ? (
             <>
-              Enemy targeting<span className="dots" />
+              {OPPONENT} is targeting<span className="dots" />
             </>
           ) : game.phase === 'playing' ? (
             'Your turn — fire!'
@@ -287,7 +298,7 @@ export function Battle({ gameId, initial, player, onFinished, onRestart, onHome 
       <div className="boards" data-view={view}>
         <section className={`panel board-panel enemy ${yourTurn ? 'armed' : ''}`} aria-label="Enemy waters">
           <header className="board-head">
-            <h2>Enemy waters</h2>
+            <h2>{OPPONENT}'s waters</h2>
             <ShipHealth label="Enemy" sunk={enemySunkIds} />
           </header>
           <Board size={size} label="Enemy waters" testId="enemy-board" interactive={yourTurn} cell={enemyCell} onFire={(r, c) => void fireAt(r, c)} />

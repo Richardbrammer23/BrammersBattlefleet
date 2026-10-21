@@ -1,8 +1,8 @@
 # Brammers BattleFleet AI
 
-Classic Battleship against an AI admiral, played three ways. Each way stands for a different style of software development:
+Classic Battleship against Captain Brammer, an AI admiral, played three ways. Each way stands for a different style of software development:
 
-| Mode | Board | AI opponent | Assistance |
+| Mode | Board | Captain Brammer (AI) | Assistance |
 | --- | --- | --- | --- |
 | **Devin (autonomous execution)** | 10×10 | Easy (random) | Devin finds 9 of the 17 enemy ship cells and opens a simulated pull request. **Merge** it and all 9 hits land automatically for 0 human turns. **Decline** it and the 9 targets stay highlighted, but you fire every shot yourself. |
 | **Code Assist (assisted development)** | 10×10 | Medium (hunt & target) | **Accept** and 3 enemy ship cells are highlighted. **Decline** and only 1 of those 3 is highlighted. Either way you fire every shot yourself. |
@@ -14,17 +14,19 @@ Classic Battleship against an AI admiral, played three ways. Each way stands for
 
 - No login needed. You get a persistent profile with a display name (2–15 characters, profanity filtered) and a customisable SVG avatar: preset, hair, hair colour, skin tone, eyes, expression, facial hair, glasses/accessories, clothing and clothing colour.
 - A recovery code moves your profile to another browser (no email needed).
-- Ship placement by click, keyboard and `R` to rotate, plus Randomise and Clear.
+- Two-click ship placement (mouse or keyboard): click a ship's first square, then a second square in the direction it should point, and the ship fills in. Squares where the selected ship can't start are greyed out, the directions that fit are shown, and Esc cancels. Randomise and Clear are also available.
 - Server-authoritative games, so the browser never sees the enemy fleet and never submits a score.
 - A public leaderboard (overall and per mode) that shows avatar, name, mode, assistance, human turns, time and date.
 - Personal bests and achievements (Fleet Commander, Sharpshooter, Perfect Streak, Speed Captain, Devin Commander).
+- Synthesised audio: an original nautical shanty with ocean waves on every screen, a sonar ping during battle, and distinct sounds for your hits and misses and for Captain Brammer's. One mute button controls everything.
+- **Play again** from the full leaderboard, which reopens the last mode you played.
 - Accessible boards: every cell is a labelled button, arrow keys move between cells, Enter/Space fires. Supports reduced motion and has a mute toggle.
 - A responsive layout. On phones you switch between your fleet and enemy waters, and the 15×15 board still fits.
 
 ## Rules and scoring
 
 - Fleet: Carrier 5, Battleship 4, Cruiser 3, Submarine 3, Destroyer 2 (17 cells). Ships may touch but can't overlap or leave the board.
-- One shot per turn, alternating with the AI. You fire first.
+- One shot per turn, alternating with Captain Brammer (the AI). You fire first. He takes about 2 seconds to reply, like a human opponent would. The delay is the same for everyone (reduced motion doesn't shorten it), so ranked times stay comparable.
 - **Human turns** go up by one for each valid shot you fire. These don't count: duplicate or invalid shots, AI shots, and Devin's autonomous merge hits.
 - The **timer** starts when you press *Take command* (after the assistance step) and stops when the game ends.
 - **Ranking:** fewest human turns, then fastest time, then earliest finish. All three are computed on the server. Results are *not* normalised across modes or assistance. That's deliberate, because the leaderboard is meant to show how much the autonomous mode helps.
@@ -107,4 +109,4 @@ The `battlefleet_app` role can only select/insert/update/delete rows in the four
 - Profiles are tied to a browser token. If you clear site data without saving your recovery code, the profile is lost.
 - Rate limiting reduces "restart until you get a lucky board" but can't stop it completely, because new games are free to start.
 - Per-IP limits rely on the `x-forwarded-for` header that Vercel sets.
-- Sound is synthesised with the Web Audio API and plays only after the first user interaction (browser autoplay rules).
+- Sound and music are synthesised with the Web Audio API and start only after the first click, tap or key press (browser autoplay rules).

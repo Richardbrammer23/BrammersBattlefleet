@@ -107,7 +107,10 @@ test('Traditional: a player who only misses is defeated and is not ranked', asyn
     for (let c = 0; c < 15; c++) {
       if (ships.has(`${r},${c}`)) continue;
       await fire(page, r, c);
-      if (/Defeat/.test((await page.getByTestId('turn-indicator').textContent()) ?? '')) break outer;
+      // With reduced motion the result screen can replace the HUD almost immediately after defeat.
+      if (await page.getByTestId('result').isVisible()) break outer;
+      const hud = await page.getByTestId('turn-indicator').textContent({ timeout: 1000 }).catch(() => null);
+      if (hud === null || /Defeat/.test(hud)) break outer;
     }
   await expect(page.getByTestId('result-title')).toContainText('Defeat');
   await expect(page.getByTestId('result-rank')).toHaveCount(0);

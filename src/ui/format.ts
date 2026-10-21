@@ -15,3 +15,5 @@ export const colLabel = (c: number) => String.fromCharCode(65 + c);
 export const cellLabel = (r: number, c: number) => `${colLabel(c)}${r + 1}`;
 export const formatDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 export const prefersReducedMotion = () => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+export const OPPONENT = 'Captain Brammer';
