@@ -13,7 +13,7 @@ export function enemyCells(mode: Mode, seed: number) {
   return randomFleet(MODES[mode].boardSize, new Rng(seed)).flatMap(shipCells);
 }
 
-export const uniqueName = (prefix = 'E2E') => `${prefix}${Date.now().toString(36).slice(-6)}`;
+export const uniqueName = (prefix = 'E2E') => `${prefix}${Date.now().toString(36).slice(-6)}${rand().toString(36)}`;
 
 export async function createProfile(page: Page, name: string, opts: { customiseAvatar?: boolean } = {}) {
   await page.goto('/');

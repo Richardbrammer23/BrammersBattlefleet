@@ -19,19 +19,25 @@ const FLEET = [
 ];
 
 let ipCounter = 0;
-async function call(method: string, path: string, opts: { token?: string; body?: unknown; seed?: number; ip?: string; query?: Record<string, string> } = {}) {
-  const headers: Record<string, string> = {};
+let nameCounter = 0;
+type CallOpts = { token?: string; cookie?: string; contentType?: string; proto?: string; body?: unknown; seed?: number; ip?: string; query?: Record<string, string> };
+async function call(method: string, path: string, opts: CallOpts = {}) {
+  const headers: Record<string, string> = { 'content-type': opts.contentType ?? 'application/json' };
   if (opts.token) headers.authorization = `Bearer ${opts.token}`;
+  if (opts.cookie !== undefined) headers.cookie = `theme=dark; bbf_session=${opts.cookie}`;
+  if (opts.proto) headers['x-forwarded-proto'] = opts.proto;
   if (opts.seed != null) headers['x-test-seed'] = String(opts.seed);
   return handleApi({ method, path, headers, query: opts.query ?? {}, body: opts.body, ip: opts.ip ?? `10.0.${++ipCounter}.1` });
 }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const b = (r: { body: unknown }) => r.body as any;
+const setCookie = (r: { headers?: Record<string, string> }) => r.headers?.['Set-Cookie'] ?? '';
+const tokenOf = (r: { headers?: Record<string, string> }) => /bbf_session=([^;]*)/.exec(setCookie(r))?.[1] ?? '';
 
-async function newPlayer(name = 'Tester') {
-  const r = await call('POST', '/players', { body: { displayName: name, avatar: DEFAULT_AVATAR } });
+async function newPlayer(name = `Tester ${++nameCounter}`, ip?: string) {
+  const r = await call('POST', '/players', { body: { displayName: name, avatar: DEFAULT_AVATAR }, ip });
   expect(r.status).toBe(201);
-  return b(r) as { token: string; recoveryCode: string; player: { id: string } };
+  return { ...b(r), token: tokenOf(r) } as { token: string; recoveryCode: string; player: { id: string; displayName: string } };
 }
 
 /** Play a full winning game using knowledge of the seeded enemy fleet (test-only). */
@@ -60,6 +66,8 @@ async function winGame(token: string, mode: 'devin' | 'codeassist' | 'traditiona
 }
 
 beforeAll(async () => {
+  // Clear first: the unique-name index can't be created over duplicates left by older runs.
+  await db()`truncate players, games, achievements, rate_limits cascade`.catch(() => undefined);
   await db().unsafe(readFileSync(new URL('./schema.sql', import.meta.url), 'utf8'));
   await db()`truncate players, games, achievements, rate_limits cascade`;
 });
@@ -102,9 +110,11 @@ describe('players', () => {
 
   it('recovers a profile on another device and rotates the session', async () => {
     const p = await newPlayer('Roamer');
-    const r = b(await call('POST', '/players/recover', { body: { recoveryCode: p.recoveryCode.toLowerCase().replace(/-/g, ' ') } }));
+    const res = await call('POST', '/players/recover', { body: { recoveryCode: p.recoveryCode.toLowerCase().replace(/-/g, ' ') } });
+    const r = b(res);
     expect(r.player.id).toBe(p.player.id);
-    expect((await call('GET', '/players/me', { token: r.token })).status).toBe(200);
+    expect(r.token).toBeUndefined();
+    expect((await call('GET', '/players/me', { cookie: tokenOf(res) })).status).toBe(200);
     expect((await call('GET', '/players/me', { token: p.token })).status).toBe(401);
     expect((await call('POST', '/players/recover', { body: { recoveryCode: 'AAAA-AAAA-AAAA-AAAA-AAAA-AAAA' } })).status).toBe(404);
   });
@@ -258,5 +268,133 @@ describe('leaderboard', () => {
     await db()`update players set display_name = 'Bobby' where id = ${bobEntry.playerId}`;
     const lb2 = b(await call('GET', '/leaderboard', {}));
     expect(lb2.entries.filter((e: { playerId: string }) => e.playerId === bobEntry.playerId).map((e: { displayName: string }) => e.displayName)).toEqual(['Bobby']);
+  });
+});
+
+describe('unique names', () => {
+  it('rejects duplicate names, ignoring case and surrounding/extra spaces, without revealing the owner', async () => {
+    const p = await newPlayer('Unique Cap');
+    for (const variant of ['Unique Cap', 'unique cap', 'UNIQUE CAP', '  Unique Cap  ', 'Unique   Cap']) {
+      const r = await call('POST', '/players', { body: { displayName: variant } });
+      expect(r.status).toBe(409);
+      expect(b(r)).toEqual({ error: 'name_taken' });
+      expect(setCookie(r)).toBe('');
+    }
+    const [{ n }] = await db()`select count(*)::int as n from players where name_key = 'unique cap'`;
+    expect(n).toBe(1);
+    expect(b(await call('GET', '/players/me', { token: p.token })).player.displayName).toBe('Unique Cap');
+  });
+
+  it('enforces uniqueness in the database, even for concurrent sign-ups', async () => {
+    const rs = await Promise.all(Array.from({ length: 5 }, (_, i) => call('POST', '/players', { body: { displayName: i % 2 ? 'RACE NAME' : 'race name' } })));
+    expect(rs.map((r) => r.status).sort()).toEqual([201, 409, 409, 409, 409]);
+    await expect(db()`insert into players (display_name, session_hash, recovery_hash) values ('Race Name', 'x1', 'y1')`).rejects.toMatchObject({ code: '23505' });
+  });
+
+  it('reports name availability', async () => {
+    await newPlayer('Taken One');
+    expect(b(await call('GET', '/players/available', { query: { name: ' taken one ' } }))).toEqual({ available: false });
+    expect(b(await call('GET', '/players/available', { query: { name: 'Free One' } }))).toEqual({ available: true });
+    expect((await call('GET', '/players/available', { query: { name: 'x' } })).status).toBe(400);
+  });
+
+  it('renames keep the same player, history and achievements, and reject taken names', async () => {
+    const other = await newPlayer('Holder');
+    const p = await newPlayer('Renamer');
+    const win = await winGame(p.token, 'devin', 4242, 'merge');
+    expect(win.game.phase).toBe('won');
+    const before = b(await call('GET', '/players/me', { token: p.token }));
+
+    const taken = await call('PATCH', '/players/me', { token: p.token, body: { displayName: 'HOLDER' } });
+    expect(taken.status).toBe(409);
+    expect(b(taken).error).toBe('name_taken');
+    expect(b(await call('GET', '/players/me', { token: other.token })).player.displayName).toBe('Holder');
+
+    expect(b(await call('PATCH', '/players/me', { token: p.token, body: { displayName: 'RENAMER' } })).player.displayName).toBe('RENAMER');
+    const r = await call('PATCH', '/players/me', { token: p.token, body: { displayName: 'New Name' } });
+    expect(b(r).player).toMatchObject({ id: p.player.id, displayName: 'New Name' });
+    const after = b(await call('GET', '/players/me', { token: p.token }));
+    expect(after.achievements).toEqual(before.achievements);
+    expect(after.personalBests).toEqual(before.personalBests);
+    expect(after.totals).toEqual(before.totals);
+    const lb = b(await call('GET', '/leaderboard', { query: { limit: '100' } }));
+    const mine = lb.entries.filter((e: { playerId: string }) => e.playerId === p.player.id);
+    expect(mine.map((e: { displayName: string; gameId: string }) => [e.displayName, e.gameId])).toEqual([['New Name', win.id]]);
+    expect(lb.entries.some((e: { displayName: string }) => e.displayName === 'Renamer')).toBe(false);
+    expect((await call('POST', '/players', { body: { displayName: 'renamer' } })).status).toBe(201);
+  });
+});
+
+describe('sessions', () => {
+  it('sets an HttpOnly session cookie and never returns the token in the body', async () => {
+    const r = await call('POST', '/players', { body: { displayName: 'Cookie Cap' }, proto: 'https' });
+    expect(r.status).toBe(201);
+    expect(b(r).token).toBeUndefined();
+    const c = setCookie(r);
+    expect(c).toMatch(/^bbf_session=[A-Za-z0-9_-]{40,}; Path=\/api; HttpOnly; SameSite=Lax; Max-Age=\d{7,}; Secure$/);
+    const me = await call('GET', '/players/me', { cookie: tokenOf(r) });
+    expect(b(me).player.displayName).toBe('Cookie Cap');
+    expect(setCookie(me)).toBe('');
+    expect(setCookie(await call('POST', '/players', { body: { displayName: 'Local Cap' } }))).not.toContain('Secure');
+  });
+
+  it('recognises the returning player on every visit without creating new players', async () => {
+    const p = await newPlayer();
+    const [{ n: before }] = await db()`select count(*)::int as n from players`;
+    for (let i = 0; i < 3; i++) expect(b(await call('GET', '/players/me', { cookie: p.token })).player.id).toBe(p.player.id);
+    const [{ n: after }] = await db()`select count(*)::int as n from players`;
+    expect(after).toBe(before);
+  });
+
+  it('moves a legacy localStorage bearer token into the cookie', async () => {
+    const p = await newPlayer();
+    const me = await call('GET', '/players/me', { token: p.token });
+    expect(me.status).toBe(200);
+    expect(tokenOf(me)).toBe(p.token);
+    expect((await call('GET', '/players/me', { token: 'forged' })).status).toBe(401);
+  });
+
+  it('blocks cookie-authenticated writes without a JSON content type (CSRF)', async () => {
+    const p = await newPlayer();
+    const forged = await call('PATCH', '/players/me', { cookie: p.token, contentType: 'application/x-www-form-urlencoded', body: { displayName: 'Pwned' } });
+    expect(forged.status).toBe(403);
+    expect(b(await call('GET', '/players/me', { cookie: p.token })).player.displayName).toBe(p.player.displayName);
+    expect((await call('PATCH', '/players/me', { cookie: p.token, body: { displayName: 'Legit Edit' } })).status).toBe(200);
+  });
+
+  it('clears a stale cookie after the session is rotated by recovery', async () => {
+    const p = await newPlayer();
+    await call('POST', '/players/recover', { body: { recoveryCode: p.recoveryCode } });
+    const r = await call('GET', '/players/me', { cookie: p.token });
+    expect(r.status).toBe(401);
+    expect(setCookie(r)).toMatch(/^bbf_session=; .*Max-Age=0/);
+  });
+
+  it("a player can only change their own profile; knowing a name grants nothing", async () => {
+    const a = await newPlayer('Victim');
+    const bad = await newPlayer('Attacker');
+    await call('PATCH', '/players/me', { token: bad.token, body: { displayName: 'Attacker2', avatar: { ...DEFAULT_AVATAR, hair: 'mohawk' } } });
+    expect(b(await call('GET', '/players/me', { token: a.token })).player).toMatchObject({ id: a.player.id, displayName: 'Victim', avatar: DEFAULT_AVATAR });
+    const squat = await call('POST', '/players', { body: { displayName: 'victim' } });
+    expect(squat.status).toBe(409);
+    expect(b(squat).player).toBeUndefined();
+    expect((await call('POST', '/players/recover', { body: { recoveryCode: 'Victim' } })).status).toBe(400);
+  });
+});
+
+describe('avatars', () => {
+  it('a new avatar shows on every historical leaderboard entry and in the profile', async () => {
+    const p = await newPlayer('Painter');
+    const g1 = await winGame(p.token, 'devin', 777, 'merge');
+    const g2 = await winGame(p.token, 'codeassist', 778, 'accept');
+    const avatar = { ...DEFAULT_AVATAR, hair: 'mohawk' };
+    await call('PATCH', '/players/me', { token: p.token, body: { avatar } });
+    const lb = b(await call('GET', '/leaderboard', { query: { limit: '100' } }));
+    const mine = lb.entries.filter((e: { playerId: string }) => e.playerId === p.player.id);
+    expect(mine.map((e: { gameId: string }) => e.gameId).sort()).toEqual([g1.id, g2.id].sort());
+    for (const e of mine) expect(e.avatar).toEqual(avatar);
+    expect(b(await call('GET', '/players/me', { token: p.token })).player.avatar).toEqual(avatar);
+    const cols = await db()`select column_name from information_schema.columns where table_name = 'games' and column_name like '%avatar%'`;
+    expect(cols).toHaveLength(0);
   });
 });

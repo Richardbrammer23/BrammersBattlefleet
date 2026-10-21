@@ -8,8 +8,8 @@ Every defect below was actually hit during development and fixed. None were inve
 | --- | --- | --- |
 | Type check | `npm run typecheck` | Pass, 0 errors |
 | Lint | `npm run lint` | Pass, 0 problems |
-| Unit + API/DB tests | `npm test` | **57 / 57 passed** (39 engine, 18 API) |
-| Browser tests | `npm run test:e2e` | **14 / 14 passed** (13 desktop at 1440×900, 1 mobile on Pixel 7) |
+| Unit + API/DB tests | `npm test` | **68 / 68 passed** (39 engine, 29 API) |
+| Browser tests | `npm run test:e2e` | **18 / 18 passed** (17 desktop at 1440×900, 1 mobile on Pixel 7) |
 | Production build | `npm run build` | Pass. JS 250 kB (79 kB gzip), CSS 23 kB |
 | AI simulation | `npm run simulate -- 5000` | See below |
 
@@ -17,6 +17,10 @@ Every defect below was actually hit during development and fixed. None were inve
 - The name input stops at 15 characters, and invalid names can't be submitted.
 - A profile with a custom avatar survives a reload. Renaming it persists.
 - A recovery code restores the profile in a fresh browser context.
+- A taken name, in any case and with extra spaces, shows the "already registered" message and a link to sign in.
+- A returning player is recognised after reloads and after closing and reopening the browser (same player ID; the session cookie is HttpOnly and unreadable by scripts).
+- A localStorage token from the older build is moved into the cookie.
+- A new name and avatar show in the header and on historical leaderboard entries.
 - **Devin merge:** the PR card is shown, merging lands exactly 9 hits with 0 human turns, the player finishes the remaining 8 cells, the result shows 8 turns and a rank, and the leaderboard row shows name and avatar. Mode filters include and exclude the row correctly.
 - **Devin decline:** 9 targets are highlighted, none are auto-hit, and the first manual shot counts as 1 turn.
 - **Code Assist accept:** 3 targets are highlighted, there are 0 hits, and the turn count is 0.
@@ -172,6 +176,34 @@ The difficulty order holds (Easy > Medium > Hard shots needed) on both board siz
   - The last two pushes were processed together at 15:38. That points to GitHub delivering its notifications late, not to anything in the project.
 - **Root cause:** GitHub had an incident on 21 Oct 2026, "Delays for Pull Requests and Webhook deliveries" (githubstatus.com, investigating from 14:52 UTC and still unresolved when this report was written). Vercel's Git integration deploys when it receives GitHub's push webhook, so a late webhook means a late deploy. The project configuration was correct.
 - **Fix:** none needed in the project. Changing Vercel or GitHub settings wouldn't make GitHub's webhooks arrive faster. A GitHub Actions deploy job wouldn't help either, because Actions was degraded in the same incident. The process lesson: after a merge, confirm the production deployment from Vercel or the commit status. If it hasn't appeared within about 15 minutes, check githubstatus.com and redeploy that exact commit, rather than changing project settings.
+
+### 18. Two profiles could register the same name (data integrity)
+- **Symptom:** production had two "Captain Richard" profiles, created at 13:22 and 15:45, each with its own wins.
+- **Cause:** `players.display_name` had no uniqueness rule, and `createPlayer` and `updateMe` didn't check for an existing name.
+- **Fix:**
+  - `name_key text generated always as (lower(btrim(display_name))) stored`, with a unique index `players_name_key_idx`. Names were already NFKC-normalised, with whitespace collapsed and trimmed, before saving.
+  - A unique-violation on that index becomes `409 name_taken`, so two people signing up at the same moment can't both succeed.
+  - `GET /api/players/available` lets the welcome screen warn early. Both the welcome screen and the profile editor show the agreed message, with a "Sign in to your existing profile" link to the recovery-code form.
+- **Data:** with the owner's approval, production profiles and scores were backed up privately, then all were deleted (2 players, 4 games, 6 achievements) so the board starts clean. Preview data was cleared the same way.
+- **Evidence:** API tests cover exact, case and space variants, 5 concurrent sign-ups (exactly one gets 201), a direct SQL insert being rejected (`23505`), and renames. The E2E test covers the welcome-screen message. On the preview schema, inserting `' dup CHECK '` after `'Dup Check'` was rejected with `23505`.
+
+### 19. Returning players could end up with a second profile, and the session token was readable by scripts (identity and security)
+- **What I found:** the old build *did* remember players. It kept a random token in `localStorage` and called `/api/players/me` on load.
+  - The first "Captain Richard" profile's session was never rotated (`updated_at = created_at`), so the 15:45 sign-up came from a browser without that token: another browser, a private window, cleared site data, or another origin. Preview and production URLs have separate storage.
+  - Vercel runtime logs only keep stderr, so the exact cause can't be confirmed.
+  - Nothing stopped a second sign-up under the same name, and the welcome screen didn't point to signing in. Separately, any script on the page could read the token from `localStorage`.
+- **Fix:**
+  - The server sets `bbf_session` as `HttpOnly; SameSite=Lax; Path=/api; Max-Age≈400 days`, plus `Secure` over HTTPS, on sign-up and recovery. The token is no longer returned in response bodies.
+  - The app always asks `/api/players/me` on load, so returning players skip the welcome screen.
+  - A token left in `localStorage` by the older build is sent once as a Bearer header. The server moves it into the cookie, and the app deletes the old copy.
+  - Cookie-authenticated writes must be JSON (403 otherwise) as extra CSRF protection.
+  - A stale cookie is cleared on 401.
+  - Supabase Auth guest sessions were considered and rejected: they would need a Supabase key in the browser and browser-facing RLS, for no gain over the server-issued session.
+- **Evidence:**
+  - API tests cover the cookie flags, repeat visits creating no new players, the Bearer-to-cookie move, CSRF 403, stale-cookie clearing, and players only being able to edit themselves.
+  - The E2E test reloads twice, then saves the browser state, closes it and reopens a new browser with that state. It's the same player ID with no welcome screen, `document.cookie` can't see the token, and `localStorage` is empty.
+  - Another E2E test checks that a localStorage token from the older build is migrated.
+  - Another checks that a new avatar and name show in the header after a reload and on a historical leaderboard entry.
 
 ## Security review summary
 - The enemy fleet and unused assistance targets never leave the server while a game is active (engine test plus `publicGame()`).

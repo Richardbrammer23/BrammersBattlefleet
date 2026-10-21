@@ -12,8 +12,8 @@ Classic Battleship against Captain Brammer, an AI admiral, played three ways. Ea
 
 ## Features
 
-- No login needed. You get a persistent profile with a display name (2–15 characters, profanity filtered) and a customisable SVG avatar: preset, hair, hair colour, skin tone, eyes, expression, facial hair, glasses/accessories, clothing and clothing colour.
-- A recovery code moves your profile to another browser (no email needed).
+- No login needed. You get a persistent profile with a unique display name (2–15 characters, profanity filtered, unique ignoring case and spaces; enforced by a database index) and a customisable SVG avatar: preset, hair, hair colour, skin tone, eyes, expression, facial hair, glasses/accessories, clothing and clothing colour.
+- The browser remembers you through an HttpOnly session cookie (about 13 months), so returning players go straight back to their profile. A recovery code moves your profile to another browser (no email needed). A name alone never signs anyone in.
 - Two-click ship placement (mouse or keyboard): click a ship's first square, then a second square in the direction it should point, and the ship fills in. Squares where the selected ship can't start are greyed out, the directions that fit are shown, and Esc cancels. Randomise and Clear are also available.
 - Server-authoritative games, so the browser never sees the enemy fleet and never submits a score.
 - A public leaderboard (overall and per mode) that shows avatar, name, mode, assistance, human turns, time and date.
@@ -63,7 +63,7 @@ e2e/          Playwright browser tests
 ```
 
 - **Server-authoritative play:** `POST /api/games` creates the game on the server with a random seed. Each shot (`POST /api/games/:id/fire`) is checked, resolved and answered by the AI on the server. The browser only receives `publicGame()`, which leaves out the enemy fleet and the unused assistance targets until the game ends. On a win the server works out the turns, time and rank inside the same transaction.
-- **Integrity:** every change to a game locks its row (`SELECT … FOR UPDATE`). That rules out double merges, double shots, playing after the game ends, and playing an abandoned game. Starting a new game abandons any active one. Tokens and recovery codes are 256-bit / 120-bit random values and are stored only as SHA-256 hashes. Rate limits cover profile creation, recovery and game creation.
+- **Integrity:** every change to a game locks its row (`SELECT … FOR UPDATE`). That rules out double merges, double shots, playing after the game ends, and playing an abandoned game. Starting a new game abandons any active one. Tokens and recovery codes are 256-bit / 120-bit random values and are stored only as SHA-256 hashes. Rate limits cover profile creation, name checks, recovery and game creation. The session token is only ever held in an `HttpOnly; SameSite=Lax` cookie (`Secure` over HTTPS), and cookie-authenticated writes must be JSON, which blocks cross-site form posts.
 - **Database:** Postgres (Supabase compatible). Schema is in `server/schema.sql`. RLS is on and the public `anon`/`authenticated` roles get no access. Only the server connects, via `DATABASE_URL`.
 
 ## Running locally
@@ -106,7 +106,7 @@ The `battlefleet_app` role can only select/insert/update/delete rows in the four
 
 ## Known limitations
 
-- Profiles are tied to a browser token. If you clear site data without saving your recovery code, the profile is lost.
+- Profiles are tied to a browser session cookie. If you clear site data or use a private window without saving your recovery code, the profile can't be restored there. There is no email sign-in (Supabase's built-in email only reaches project team members; it would need an SMTP provider).
 - Rate limiting reduces "restart until you get a lucky board" but can't stop it completely, because new games are free to start.
 - Per-IP limits rely on the `x-forwarded-for` header that Vercel sets.
 - Sound and music are synthesised with the Web Audio API and start only after the first click, tap or key press (browser autoplay rules).

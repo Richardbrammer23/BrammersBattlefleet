@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { api, errorMessage, setToken, type Player } from '../api';
+import { api, ApiError, errorMessage, NAME_TAKEN_MESSAGE, type Player } from '../api';
 import { DEFAULT_AVATAR, type AvatarConfig } from '../avatar/options';
 import { NAME_MAX, nameError } from '../engine';
 import { AvatarCreator } from './AvatarCreator';
@@ -25,6 +25,7 @@ export function Welcome({ onDone }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<{ player: Player; code: string } | null>(null);
   const [code, setCode] = useState('');
+  const [nameTaken, setNameTaken] = useState(false);
   const nameErr = name ? nameError(name) : 'too_short';
 
   const create = async (withAvatar: boolean) => {
@@ -33,11 +34,13 @@ export function Welcome({ onDone }: Props) {
     setError(null);
     try {
       const r = await api.createPlayer(name, withAvatar ? avatar : null);
-      setToken(r.token);
       setCreated({ player: r.player, code: r.recoveryCode });
       setStep('code');
     } catch (e) {
-      setError(errorMessage(e));
+      if (e instanceof ApiError && e.code === 'name_taken') {
+        setNameTaken(true);
+        setStep('name');
+      } else setError(errorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -49,10 +52,25 @@ export function Welcome({ onDone }: Props) {
     setError(null);
     try {
       const r = await api.recover(code);
-      setToken(r.token);
       onDone(r.player);
     } catch (e) {
       setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const checkName = async () => {
+    if (busy || nameErr) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api.nameAvailable(name);
+      if (r.available) setStep('avatar');
+      else setNameTaken(true);
+    } catch (e) {
+      if (e instanceof ApiError && e.code === 'rate_limited') setError(errorMessage(e));
+      else setStep('avatar');
     } finally {
       setBusy(false);
     }
@@ -73,7 +91,7 @@ export function Welcome({ onDone }: Props) {
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              if (!nameErr) setStep('avatar');
+              void checkName();
             }}
           >
             <p className="muted">Choose a call sign for the public leaderboard. No email or login required.</p>
@@ -83,7 +101,10 @@ export function Welcome({ onDone }: Props) {
                 autoFocus
                 value={name}
                 maxLength={NAME_MAX}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  setNameTaken(false);
+                }}
                 placeholder="e.g. Captain Rich"
                 aria-invalid={!!name && !!nameErr}
                 data-testid="name-input"
@@ -92,11 +113,20 @@ export function Welcome({ onDone }: Props) {
                 {name && nameErr ? NAME_HINT[nameErr] : `${name.trim().length}/${NAME_MAX}`}
               </span>
             </label>
+            {nameTaken && (
+              <div className="name-taken" role="alert" data-testid="name-taken">
+                <p className="error">{NAME_TAKEN_MESSAGE}</p>
+                <button type="button" className="btn ghost" onClick={() => setStep('recover')} data-testid="sign-in-existing">
+                  Sign in to your existing profile
+                </button>
+              </div>
+            )}
+            {error && <p className="error">{error}</p>}
             <div className="row-actions">
               <button type="button" className="btn ghost" onClick={() => setStep('recover')}>
                 I have a recovery code
               </button>
-              <button className="btn primary" disabled={!!nameErr} data-testid="name-continue">
+              <button className="btn primary" disabled={!!nameErr || nameTaken || busy} data-testid="name-continue">
                 Continue
               </button>
             </div>
@@ -137,7 +167,7 @@ export function Welcome({ onDone }: Props) {
               void recover();
             }}
           >
-            <p className="muted">Enter the recovery code you saved to restore your profile on this device.</p>
+            <p className="muted">Sign in to your existing profile with the recovery code you saved. Your name alone can't sign you in.</p>
             <label className="field">
               <span>Recovery code</span>
               <input autoFocus value={code} onChange={(e) => setCode(e.target.value)} placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" className="mono" />
