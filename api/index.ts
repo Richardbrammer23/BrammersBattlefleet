@@ -8,5 +8,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const headers = Object.fromEntries(Object.entries(req.headers).map(([k, v]) => [k, Array.isArray(v) ? v[0] : v]));
   const out = await handleApi({ method: req.method ?? 'GET', path, query, headers, body: req.body, ip: clientIp(req.headers) });
   res.setHeader('Cache-Control', 'no-store');
+  for (const [k, v] of Object.entries(out.headers ?? {})) res.setHeader(k, v);
   res.status(out.status).json(out.body);
 }

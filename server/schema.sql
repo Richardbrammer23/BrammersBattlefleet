@@ -10,6 +10,9 @@ create table if not exists players (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+-- One captain per name, ignoring case. The server stores names trimmed and NFKC-normalised.
+alter table players add column if not exists name_key text generated always as (lower(btrim(display_name))) stored;
+create unique index if not exists players_name_key_idx on players (name_key);
 
 create table if not exists games (
   id uuid primary key default gen_random_uuid(),

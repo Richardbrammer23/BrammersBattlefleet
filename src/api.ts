@@ -68,19 +68,20 @@ export class ApiError extends Error {
   }
 }
 
-export const getToken = () => localStorage.getItem(TOKEN_KEY);
-export const setToken = (t: string) => localStorage.setItem(TOKEN_KEY, t);
-export const clearToken = () => localStorage.removeItem(TOKEN_KEY);
+// Sessions use an HttpOnly cookie set by the server. A token left in localStorage by an older
+// build is sent once as a Bearer header so the server can move it into the cookie, then removed.
+const legacyToken = () => localStorage.getItem(TOKEN_KEY);
+export const clearLegacyToken = () => localStorage.removeItem(TOKEN_KEY);
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const token = getToken();
+  const token = legacyToken();
   if (token) headers.Authorization = `Bearer ${token}`;
   const seed = sessionStorage.getItem('bbf.testSeed');
   if (seed) headers['X-Test-Seed'] = seed;
   let res: Response;
   try {
-    res = await fetch(`/api${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+    res = await fetch(`/api${path}`, { method, headers, credentials: 'same-origin', body: body === undefined ? undefined : JSON.stringify(body) });
   } catch {
     throw new ApiError(0, 'network_error');
   }
@@ -91,10 +92,11 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 export const api = {
   createPlayer: (displayName: string, avatar: AvatarConfig | null) =>
-    request<{ player: Player; token: string; recoveryCode: string }>('POST', '/players', { displayName, avatar }),
+    request<{ player: Player; recoveryCode: string }>('POST', '/players', { displayName, avatar }),
+  nameAvailable: (name: string) => request<{ available: boolean }>('GET', `/players/available?name=${encodeURIComponent(name)}`),
   me: () => request<Profile>('GET', '/players/me'),
   updateMe: (patch: { displayName?: string; avatar?: AvatarConfig | null }) => request<{ player: Player }>('PATCH', '/players/me', patch),
-  recover: (recoveryCode: string) => request<{ player: Player; token: string }>('POST', '/players/recover', { recoveryCode }),
+  recover: (recoveryCode: string) => request<{ player: Player }>('POST', '/players/recover', { recoveryCode }),
   createGame: (mode: Mode, fleet: Fleet) => request<GameResponse>('POST', '/games', { mode, fleet }),
   activeGame: () => request<{ id: string | null; game: PublicGame | null }>('GET', '/games/active'),
   getGame: (id: string) => request<GameResponse & { rank: Victory['rank'] }>('GET', `/games/${id}`),
@@ -105,6 +107,9 @@ export const api = {
   leaderboard: (mode: Mode | 'overall', limit = 10) => request<Leaderboard>('GET', `/leaderboard?mode=${mode}&limit=${limit}`),
 };
 
+export const NAME_TAKEN_MESSAGE =
+  "This captain's name is already registered. Please choose another username or sign in to your existing profile.";
+
 const MESSAGES: Record<string, string> = {
   network_error: 'Connection lost. Check your network and try again.',
   rate_limited: 'Too many requests — please wait a moment.',
@@ -112,8 +117,10 @@ const MESSAGES: Record<string, string> = {
   name_too_long: 'Name must be 15 characters or fewer.',
   name_invalid_characters: 'Use letters, numbers, spaces, . _ \' or - only.',
   name_not_allowed: 'Please choose a different name.',
+  name_taken: NAME_TAKEN_MESSAGE,
   invalid_recovery_code: 'That recovery code was not recognised.',
-  unauthorised: 'Your session expired. Please set up your profile again.',
+  unauthorised: 'You are signed out. Sign in with your recovery code or create a profile.',
+  forbidden: 'That request was blocked. Please reload the page.',
   game_abandoned: 'This game was replaced by a newer one.',
 };
 export const errorMessage = (e: unknown) =>

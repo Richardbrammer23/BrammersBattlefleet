@@ -8,8 +8,8 @@ Every defect below was actually hit during development and fixed. None were inve
 | --- | --- | --- |
 | Type check | `npm run typecheck` | Pass, 0 errors |
 | Lint | `npm run lint` | Pass, 0 problems |
-| Unit + API/DB tests | `npm test` | **57 / 57 passed** (39 engine, 18 API) |
-| Browser tests | `npm run test:e2e` | **14 / 14 passed** (13 desktop at 1440×900, 1 mobile on Pixel 7) |
+| Unit + API/DB tests | `npm test` | **68 / 68 passed** (39 engine, 29 API) |
+| Browser tests | `npm run test:e2e` | **18 / 18 passed** (17 desktop at 1440×900, 1 mobile on Pixel 7) |
 | Production build | `npm run build` | Pass. JS 250 kB (79 kB gzip), CSS 23 kB |
 | AI simulation | `npm run simulate -- 5000` | See below |
 
@@ -17,6 +17,10 @@ Every defect below was actually hit during development and fixed. None were inve
 - The name input stops at 15 characters, and invalid names can't be submitted.
 - A profile with a custom avatar survives a reload. Renaming it persists.
 - A recovery code restores the profile in a fresh browser context.
+- A taken name, in any case and with extra spaces, shows the "already registered" message and a link to sign in.
+- A returning player is recognised after reloads and after closing and reopening the browser (same player ID; the session cookie is HttpOnly and unreadable by scripts).
+- A localStorage token from the older build is moved into the cookie.
+- A new name and avatar show in the header and on historical leaderboard entries.
 - **Devin merge:** the PR card is shown, merging lands exactly 9 hits with 0 human turns, the player finishes the remaining 8 cells, the result shows 8 turns and a rank, and the leaderboard row shows name and avatar. Mode filters include and exclude the row correctly.
 - **Devin decline:** 9 targets are highlighted, none are auto-hit, and the first manual shot counts as 1 turn.
 - **Code Assist accept:** 3 targets are highlighted, there are 0 hits, and the turn count is 0.
@@ -150,6 +154,57 @@ The difficulty order holds (Easy > Medium > Hard shots needed) on both board siz
   - Across 96 preview responses there were no 4xx/5xx responses and no console or page errors. The only failures were 11 requests cancelled by the reloads themselves (`net::ERR_ABORTED`).
   - A final read-only check of the production leaderboard did not include the preview test player.
 
+### 17. Merging PR #1 didn't redeploy production straight away (deployment pipeline, external)
+- **Symptom:** PR #1 was merged at 15:29:04 UTC. A 5-minute poll found no new Vercel production deployment, and the live site still served the old JS bundle. To get the approved change live, a production deployment of the exact merge commit `e12bfb0` was created through the Vercel API (`dpl_9GhmEFh6…`, 15:34:45 UTC).
+- **Investigation (read-only):**
+  - The Vercel project is linked to GitHub `Richardbrammer23/BrammersBattlefleet`, and `main` is the production branch. The earlier push of `6d20197` to `main` was built for production by Git (`source: git`) 2 s after the push.
+  - `vercel.json` has no `ignoreCommand` and no `git.deploymentEnabled` override.
+  - The merge commit's author, `devin-ai-integration[bot]`, was not the problem: Vercel later built that same commit itself.
+  - GitHub commit statuses on `e12bfb0` show **two** production deployments. One is the manual one. The other is Vercel's own Git deployment, `dpl_9bvESYpx…` (`source: git`, `target: production`), created at **15:38:07**, 9 minutes after the merge and about 4 minutes after the poll gave up. That Git deployment is the one serving `brammers-battlefleet.vercel.app` now. Both deployments built the same commit, so the site didn't change between them.
+  - Push-to-build delay for every push that day:
+
+    | Commit | Pushed (UTC) | Vercel build created | Delay |
+    | --- | --- | --- | --- |
+    | `6d20197` (main) | 13:15:41 | 13:15:43 | 2 s |
+    | `fe9cc06` | 14:07:20 | 14:07:23 | 3 s |
+    | `37be893` | 14:31:15 | 14:41:14 | 10 min |
+    | `f03cc51` | 14:51:24 | 15:01:12 | 10 min |
+    | `8fb6da0` | 14:59:28 | 15:11:55 | 12 min |
+    | `e3f7284` | 15:18:34 | 15:38:11 | 20 min |
+    | `e12bfb0` (merge to main) | 15:29:04 | 15:38:07 | 9 min |
+
+  - The last two pushes were processed together at 15:38. That points to GitHub delivering its notifications late, not to anything in the project.
+- **Root cause:** GitHub had an incident on 21 Oct 2026, "Delays for Pull Requests and Webhook deliveries" (githubstatus.com, investigating from 14:52 UTC and still unresolved when this report was written). Vercel's Git integration deploys when it receives GitHub's push webhook, so a late webhook means a late deploy. The project configuration was correct.
+- **Fix:** none needed in the project. Changing Vercel or GitHub settings wouldn't make GitHub's webhooks arrive faster. A GitHub Actions deploy job wouldn't help either, because Actions was degraded in the same incident. The process lesson: after a merge, confirm the production deployment from Vercel or the commit status. If it hasn't appeared within about 15 minutes, check githubstatus.com and redeploy that exact commit, rather than changing project settings.
+
+### 18. Two profiles could register the same name (data integrity)
+- **Symptom:** production had two "Captain Richard" profiles, created at 13:22 and 15:45, each with its own wins.
+- **Cause:** `players.display_name` had no uniqueness rule, and `createPlayer` and `updateMe` didn't check for an existing name.
+- **Fix:**
+  - `name_key text generated always as (lower(btrim(display_name))) stored`, with a unique index `players_name_key_idx`. Names were already NFKC-normalised, with whitespace collapsed and trimmed, before saving.
+  - A unique-violation on that index becomes `409 name_taken`, so two people signing up at the same moment can't both succeed.
+  - `GET /api/players/available` lets the welcome screen warn early. Both the welcome screen and the profile editor show the agreed message, with a "Sign in to your existing profile" link to the recovery-code form.
+- **Data:** with the owner's approval, production profiles and scores were backed up privately, then all were deleted (2 players, 4 games, 6 achievements) so the board starts clean. Preview data was cleared the same way.
+- **Evidence:** API tests cover exact, case and space variants, 5 concurrent sign-ups (exactly one gets 201), a direct SQL insert being rejected (`23505`), and renames. The E2E test covers the welcome-screen message. On the preview schema, inserting `' dup CHECK '` after `'Dup Check'` was rejected with `23505`.
+
+### 19. Returning players could end up with a second profile, and the session token was readable by scripts (identity and security)
+- **What I found:** the old build *did* remember players. It kept a random token in `localStorage` and called `/api/players/me` on load.
+  - The first "Captain Richard" profile's session was never rotated (`updated_at = created_at`), so the 15:45 sign-up came from a browser without that token: another browser, a private window, cleared site data, or another origin. Preview and production URLs have separate storage.
+  - Vercel runtime logs only keep stderr, so the exact cause can't be confirmed.
+  - Nothing stopped a second sign-up under the same name, and the welcome screen didn't point to signing in. Separately, any script on the page could read the token from `localStorage`.
+- **Fix:**
+  - The server sets `bbf_session` as `HttpOnly; SameSite=Lax; Path=/api; Max-Age≈400 days`, plus `Secure` over HTTPS, on sign-up and recovery. The token is no longer returned in response bodies.
+  - The app always asks `/api/players/me` on load, so returning players skip the welcome screen.
+  - A token left in `localStorage` by the older build is sent once as a Bearer header. The server moves it into the cookie, and the app deletes the old copy.
+  - Cookie-authenticated writes must be JSON (403 otherwise) as extra CSRF protection.
+  - A stale cookie is cleared on 401.
+  - Supabase Auth guest sessions were considered and rejected: they would need a Supabase key in the browser and browser-facing RLS, for no gain over the server-issued session.
+- **Evidence:**
+  - API tests cover the cookie flags, repeat visits creating no new players, the Bearer-to-cookie move, CSRF 403, stale-cookie clearing, and players only being able to edit themselves.
+  - The E2E test reloads twice, then saves the browser state, closes it and reopens a new browser with that state. It's the same player ID with no welcome screen, `document.cookie` can't see the token, and `localStorage` is empty.
+  - Another E2E test checks that a localStorage token from the older build is migrated.
+  - Another checks that a new avatar and name show in the header after a reload and on a historical leaderboard entry.
+
 ## Security review summary
 - The enemy fleet and unused assistance targets never leave the server while a game is active (engine test plus `publicGame()`).
 - Scores, turns, time and rank are computed on the server. The client never submits them.
@@ -174,5 +229,55 @@ Deployed to https://brammers-battlefleet.vercel.app (Vercel, auto-deploys from `
 
 One defect turned up in the verification tooling, not in the app. The first smoke script sent shots as `{x, y}`, but the API expects `{r, c}`, so its first shot was rejected as out-of-bounds. The script was corrected and re-run. No app change was needed.
 
+## Production smoke test after PR #1 (21 Oct 2026)
+This was a recorded browser run against https://brammers-battlefleet.vercel.app. That URL serves deployment `dpl_9bvESYpx…` of merge commit `e12bfb0`; its JS bundle `index-BSqnZRcj.js` is byte-for-byte the same name as a local `npm run build` of `main`.
+
+**How it was kept off the leaderboard:**
+- One throwaway player, `QA Smoke`, played 5 games. Every game was abandoned before the fleet was sunk. Only won games are ranked, so nothing was ranked.
+- Afterwards the `QA Smoke` row was deleted with the app role, and its 5 games went with it through `on delete cascade`.
+- Database counts after cleanup: 2 players, 0 `QA Smoke` rows, and 4 games, all real won games by Captain Richard.
+- The leaderboard had 3 entries at the start and 4 at the end. The extra one is a genuine Captain Richard Devin win in 13 turns, recorded during the run before any QA game was created. `QA Smoke` never appeared on it.
+
+**Passed:**
+- **Registration:** `QA Smoke` was created with the Admiral avatar, and a reload kept the profile and avatar.
+- **Recovery:** copying the recovery code showed a confirmation, and restoring it in a fresh browser context brought back the same player ID and avatar. The original device was then signed out: `GET /api/players/me` returned 401 and it went back to Welcome.
+- **Placement:** two-click placement worked horizontally and vertically. The diagonal E5→F6 was rejected and E5 stayed as the start square. Randomise placed all 17 cells, and the game started.
+- **Devin merge:** 9 autonomous hits and 0 human turns, then 2 manual shots.
+- **Devin decline:** 9 highlighted targets, 0 automatic shots, and the manual-execution description. One highlighted and one non-highlighted cell were fired.
+- **Code Assist:** accept showed 3 targets and decline showed exactly 1. Highlighted targets had to be fired manually, and a fired highlight was used up. Two human turns each.
+- **Traditional:** 225 cells in placement and in battle, no assistance or highlights, 3 shots.
+- **Captain Brammer:** the name is correct on Home, the waters heading, the targeting HUD and the miss messages, and the title is unchanged.
+  - His reply took **2,000.7 ms**.
+  - A forced second click during his turn sent no extra fire request.
+- **Play again:** the full leaderboard loaded with names and avatars. "Play again — Traditional Coding" opened a fresh 225-cell placement without creating a game.
+- **Audio (instrumented Web Audio):**
+  - Nothing plays until the first click or key press.
+  - Menu music and battle sonar both started.
+  - Captain Brammer's miss cue played at 620/480/700 Hz.
+  - Mute scheduled zero new audio events, and unmute restored the sonar hum and pings (55 Hz and 1,320 Hz).
+- **Network:** 44 API responses: 37×200, 6×201 and 1 deliberate 401 (the signed-out old device). There were no other failed requests, no page errors and no console warnings. The only console error came with that deliberate 401.
+
+**Not verified in production (and why):**
+- Captain Brammer's hit and sunk cues: all 11 of his replies happened to miss, and no extra shots were fired to force a hit. The hit cue (90/260 Hz) was verified on the Preview.
+- Victory, defeat and result screens: deliberately not played, to keep test results off the leaderboard. They are covered by the local E2E suite and the Preview Devin win.
+- How the music and sounds actually sound: needs a human listener.
+- The new build on real phones: the mobile layout is covered by the local Pixel 7 E2E test.
+
 ## Readiness
-The engine, API, UI, accessibility and responsive behaviour are complete and tested locally (55 unit/API, 11 browser tests) and in production (16 API checks, 2 live browser tests). The app is ready for public play.
+**Tests run for this sign-off, on `main` at `e12bfb0`:**
+- Typecheck and lint are clean.
+- Vitest: 57/57.
+- Build passes.
+- Playwright: 14/14 locally.
+- The production browser smoke test above passed.
+- The production API answered health and leaderboard with 200, the bundle contains no secrets, and the security headers are present.
+
+**Assessment: ready for public play.** All three modes, profiles, recovery, ship placement, Captain Brammer's 2 s turns, Play again and the leaderboard work in production with no unexpected errors. Preview deployments use a separate `preview` schema, so they can't write to the live leaderboard.
+
+**Outstanding risks and manual checks:**
+- The GitHub repository is still **private**: logged-out requests return 404. The owner has to switch it to Public for the public-repo deliverable.
+- Until GitHub's webhook incident is resolved, deploys after a merge may arrive late. See #17.
+- Someone can still keep restarting until they get a lucky board. Rate limits slow this down but can't stop it.
+- A profile is lost if browser data is cleared and the recovery code wasn't saved.
+- The Vercel runtime logs a Node `DEP0169` `url.parse()` deprecation warning on `/api`. It is harmless today and is not raised by app code.
+- Still to check by hand: listen to the music and sounds, see a Captain Brammer hit, sunk and defeat in production, and play once on a real phone.

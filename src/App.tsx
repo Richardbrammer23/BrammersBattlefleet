@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, clearToken, errorMessage, getToken, ApiError, type Player, type Victory } from './api';
+import { api, clearLegacyToken, errorMessage, ApiError, type Player, type Victory } from './api';
 import { MODES, type Fleet, type Mode, type PublicGame } from './engine';
 import { Avatar } from './ui/Avatar';
 import { Battle } from './ui/Battle';
@@ -50,16 +50,16 @@ export default function App() {
     if (seed) sessionStorage.setItem('bbf.testSeed', seed);
     if (import.meta.env.DEV && new URLSearchParams(location.search).has('fastAi')) sessionStorage.setItem('bbf.fastAi', '1');
     (async () => {
-      if (!getToken()) return setScreen({ name: 'welcome' });
       try {
         const me = await api.me();
+        clearLegacyToken();
         setPlayer(me.player);
         const active = await api.activeGame();
         if (active.id && active.game) setScreen({ name: 'battle', gameId: active.id, game: active.game, key: Date.now() });
         else setScreen({ name: 'home' });
       } catch (e) {
         if (e instanceof ApiError && e.status === 401) {
-          clearToken();
+          clearLegacyToken();
           setScreen({ name: 'welcome' });
         } else {
           setError(errorMessage(e));

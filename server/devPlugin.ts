@@ -29,6 +29,7 @@ export function apiDevPlugin(): Plugin {
       res.statusCode = out.status;
       res.setHeader('Content-Type', 'application/json');
       res.setHeader('Cache-Control', 'no-store');
+      for (const [k, v] of Object.entries(out.headers ?? {})) res.setHeader(k, v);
       res.end(JSON.stringify(out.body));
     }) as never);
   };
