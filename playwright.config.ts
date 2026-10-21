@@ -15,8 +15,19 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
   projects: [
-    { name: 'desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } }, testIgnore: /mobile\.spec\.ts/ },
+    { name: 'desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } }, testIgnore: /(mobile|responsive)\.spec\.ts/ },
     { name: 'mobile', use: { ...devices['Pixel 7'] }, testMatch: /mobile\.spec\.ts/ },
+    // Breakpoint sweep: every screen at common phone/tablet sizes (Chromium emulation of each device's viewport, DPR and touch).
+    ...(
+      [
+        ['phone-320-iphone-se', 'iPhone SE'],
+        ['phone-390-iphone-14', 'iPhone 14'],
+        ['phone-412-pixel-7', 'Pixel 7'],
+        ['phone-landscape-iphone-14', 'iPhone 14 landscape'],
+        ['tablet-768-ipad-mini', 'iPad Mini'],
+        ['tablet-1024-ipad-mini-landscape', 'iPad Mini landscape'],
+      ] as const
+    ).map(([name, device]) => ({ name, use: { ...devices[device], browserName: 'chromium' as const }, testMatch: /responsive\.spec\.ts/ })),
   ],
   webServer: process.env.E2E_BASE_URL
     ? undefined

@@ -119,6 +119,29 @@ describe('players', () => {
     expect((await call('POST', '/players/recover', { body: { recoveryCode: 'AAAA-AAAA-AAAA-AAAA-AAAA-AAAA' } })).status).toBe(404);
   });
 
+  it('issues a new recovery code from the profile and retires the old one', async () => {
+    const p = await newPlayer('Rekey');
+    expect((await call('POST', '/players/me/recovery-code')).status).toBe(401);
+    expect((await call('POST', '/players/me/recovery-code', { cookie: p.token, contentType: 'text/plain' })).status).toBe(403);
+    const res = await call('POST', '/players/me/recovery-code', { cookie: p.token });
+    expect(res.status).toBe(200);
+    const fresh = b(res).recoveryCode as string;
+    expect(fresh).toMatch(/^([0-9A-HJKMNP-TV-Z]{4}-){5}[0-9A-HJKMNP-TV-Z]{4}$/);
+    expect(fresh).not.toBe(p.recoveryCode);
+    expect((await call('GET', '/players/me', { cookie: p.token })).status).toBe(200);
+    expect((await call('POST', '/players/recover', { body: { recoveryCode: p.recoveryCode } })).status).toBe(404);
+    const restored = await call('POST', '/players/recover', { body: { recoveryCode: fresh } });
+    expect(b(restored).player.id).toBe(p.player.id);
+  });
+
+  it('limits how often a player can issue new recovery codes', async () => {
+    const p = await newPlayer('Rekey Spam');
+    const statuses = [];
+    for (let i = 0; i < 11; i++) statuses.push((await call('POST', '/players/me/recovery-code', { cookie: p.token })).status);
+    expect(statuses.slice(0, 10).every((s) => s === 200)).toBe(true);
+    expect(statuses.at(-1)).toBe(429);
+  });
+
   it('rate-limits profile creation per IP', async () => {
     const statuses = [];
     for (let i = 0; i < 22; i++) statuses.push((await call('POST', '/players', { body: { displayName: `Spam ${i}` }, ip: '9.9.9.9' })).status);

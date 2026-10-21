@@ -138,3 +138,31 @@ test('a new avatar and name show everywhere, including historical leaderboard en
   expect(after).toBe(chipAvatar);
   await expect(page.getByTestId('leaderboard').locator('tr', { hasText: name })).toHaveCount(0);
 });
+
+test('the profile issues a new recovery code that restores the profile, and the old code stops working', async ({ page, browser }) => {
+  const name = uniqueName('Key');
+  const oldCode = await createProfile(page, name);
+  await page.getByTestId('profile-chip').click();
+  await page.getByTestId('recovery-new').click();
+  await expect(page.getByTestId('recovery-confirm')).toBeVisible();
+  await page.getByTestId('recovery-confirm').click();
+  const panel = page.getByTestId('recovery-panel');
+  await expect(panel).toContainText('Your previous code no longer works');
+  const newCode = ((await panel.getByTestId('recovery-code').textContent()) ?? '').trim();
+  expect(newCode).toMatch(/^([0-9A-HJKMNP-TV-Z]{4}-){5}[0-9A-HJKMNP-TV-Z]{4}$/);
+  expect(newCode).not.toBe(oldCode);
+  await page.reload();
+  await expect(page.getByTestId('profile-chip')).toContainText(name);
+
+  const other = await browser.newContext({ extraHTTPHeaders: { 'x-forwarded-for': fakeIp() } });
+  const p2 = await other.newPage();
+  await p2.goto('/');
+  await p2.getByRole('button', { name: 'I have a recovery code' }).click();
+  await p2.getByRole('textbox').fill(oldCode);
+  await p2.getByRole('button', { name: /restore/i }).click();
+  await expect(p2.getByText('That recovery code was not recognised.')).toBeVisible();
+  await p2.getByRole('textbox').fill(newCode);
+  await p2.getByRole('button', { name: /restore/i }).click();
+  await expect(p2.getByTestId('profile-chip')).toContainText(name);
+  await other.close();
+});
