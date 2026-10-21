@@ -127,6 +127,12 @@ The difficulty order holds (Easy > Medium > Hard shots needed) on both board siz
 - **Fix:** the `fire` helper accepts either the updated cell or the result screen. The loss loop stops when the result screen is showing or the HUD reads "Defeat".
 - **Verified:** the loss test passed 4 repeated runs, and the full browser suite passes.
 
+### 15. A diagonal second click moved the ship's start square (placement UX)
+- **Symptom:** found in the recorded play-test. Selecting the Carrier, clicking E5, then clicking F6 (diagonal) placed nothing, and the start square silently jumped from E5 to F6.
+- **Root cause:** `shipTowards` correctly returns no ship for a diagonal click, but the click handler in `Placement.tsx` then treated the click as a new first square whenever that square was a legal start.
+- **Fix:** with a start square chosen, any second click that isn't a valid straight-line placement is rejected. The start square stays put and the status line explains why: "Pick a square in the same row or column as E5", or "It doesn't fit that way" for a blocked direction. Clicking the start square again or pressing Esc still cancels.
+- **Verified:** the placement browser test now clicks a diagonal square, then checks that A1 is still the start square, no ship was placed and the message shows. All 14 browser tests and 57 unit tests pass.
+
 ## Security review summary
 - The enemy fleet and unused assistance targets never leave the server while a game is active (engine test plus `publicGame()`).
 - Scores, turns, time and rank are computed on the server. The client never submits them.

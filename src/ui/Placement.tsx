@@ -17,6 +17,7 @@ export function Placement({ mode, busy, error, onStart, onBack }: Props) {
   const [fleet, setFleet] = useState<Fleet>([]);
   const [selected, setSelected] = useState<ShipId | null>('carrier');
   const [anchor, setAnchor] = useState<Coord | null>(null);
+  const [hint, setHint] = useState<string | null>(null);
   const [hover, setHover] = useState<Coord | null>(null);
 
   const nextUnplaced = useCallback((f: Fleet) => SHIPS.find((s) => !f.some((x) => x.id === s.id))?.id ?? null, []);
@@ -67,6 +68,7 @@ export function Placement({ mode, busy, error, onStart, onBack }: Props) {
 
   const place = (r: number, c: number) => {
     const k = `${r},${c}`;
+    setHint(null);
     const at = occupied.get(k);
     if (at && !anchor) {
       // Pick a placed ship back up.
@@ -86,8 +88,10 @@ export function Placement({ mode, busy, error, onStart, onBack }: Props) {
       setFleet(next);
       setSelected(nextUnplaced(next));
       setAnchor(null);
-    } else if (!ship && anchorable.has(k)) {
-      setAnchor({ r, c });
+    } else {
+      // Keep the anchor and explain, rather than silently moving the start square.
+      const from = cellLabel(anchor.r, anchor.c);
+      setHint(ship ? `It doesn't fit that way from ${from}. Try another direction.` : `Pick a square in the same row or column as ${from}.`);
     }
   };
 
@@ -104,7 +108,7 @@ export function Placement({ mode, busy, error, onStart, onBack }: Props) {
       ? 'Fleet ready. Click a ship to move it, or begin the battle.'
       : 'Select a ship, or click a placed ship to move it.'
     : anchor
-      ? `${spec.name} starts at ${cellLabel(anchor.r, anchor.c)}. Click a square next to it to point the ship that way.`
+      ? hint ?? `${spec.name} starts at ${cellLabel(anchor.r, anchor.c)}. Click a square next to it to point the ship that way.`
       : `Click the first square for your ${spec.name} (${spec.length} squares).`;
 
   const complete = fleet.length === SHIPS.length;

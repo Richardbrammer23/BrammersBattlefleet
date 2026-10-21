@@ -17,6 +17,11 @@ test('two-click placement: the second square sets the direction and the ship fil
   await expect(board.locator('.cell.preview-anchor')).toHaveCount(1);
   await expect(board.locator('.cell.preview-option')).toHaveCount(8);
   await expect(page.getByTestId('placement-status')).toContainText('Carrier starts at A1');
+  // A diagonal second click is rejected and keeps the anchor.
+  await placementCell(page, 1, 1).click();
+  await expect(page.getByTestId('placement-status')).toContainText('same row or column as A1');
+  await expect(placementCell(page, 0, 0)).toHaveClass(/preview-anchor/);
+  await expect(board.locator('[data-state=ship]')).toHaveCount(0);
   await placementCell(page, 0, 1).click();
   for (let c = 0; c < 5; c++) await expect(placementCell(page, 0, c)).toHaveAttribute('data-state', 'ship');
 
