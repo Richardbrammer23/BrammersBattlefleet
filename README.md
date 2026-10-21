@@ -93,10 +93,14 @@ Results, the bugs found and how they were fixed are in [`docs/DEBUGGING_REPORT.m
 
 ## Deployment (Vercel + Supabase)
 
-1. Create a Supabase project and copy the **pooled** connection string (Transaction pooler, port 6543).
-2. Run the schema: `DATABASE_URL=… npm run db:migrate`.
-3. Import the repo into Vercel (Vite preset). Set `DATABASE_URL` as a server-side environment variable. Never add it to `VITE_*`.
-4. Deploy. `vercel.json` routes `/api/*` to the serverless function and serves the SPA for everything else.
+1. Create a dedicated Supabase project and copy the **pooled** connection string (Transaction pooler, port 6543).
+2. With that admin URL, apply the schema and create the least-privilege runtime role:
+   `DATABASE_URL=… APP_DB_PASSWORD=<24+ alphanumeric chars> npx tsx scripts/create-app-role.ts`
+   (`npm run db:migrate` alone applies the schema without the role.)
+3. Import the repo into Vercel (Vite preset). Set `DATABASE_URL` as a **Sensitive**, server-side environment variable using the `battlefleet_app.<project-ref>` pooler URL, not the admin login. Never add it to `VITE_*`.
+4. Push to `main`. Vercel builds and deploys it. `vercel.json` routes `/api/*` to the serverless function and serves the SPA for everything else.
+
+The `battlefleet_app` role can only select/insert/update/delete rows in the four game tables (through explicit RLS policies). It cannot create or drop tables or read other schemas such as Supabase `auth`. Supabase's public `anon`/`authenticated` API roles have no access at all.
 
 ## Known limitations
 
