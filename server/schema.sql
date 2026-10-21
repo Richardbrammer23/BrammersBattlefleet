@@ -54,3 +54,19 @@ begin
     revoke all on players, games, achievements, rate_limits from anon, authenticated;
   end if;
 end $$;
+
+-- Least-privilege runtime role (created by scripts/create-app-role.ts in production).
+-- It gets DML on the game tables only, through explicit RLS policies.
+do $$
+declare t text;
+begin
+  if exists (select 1 from pg_roles where rolname = 'battlefleet_app') then
+    grant usage on schema public to battlefleet_app;
+    grant select, insert, update, delete on players, games, achievements, rate_limits to battlefleet_app;
+    foreach t in array array['players', 'games', 'achievements', 'rate_limits'] loop
+      if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = t and policyname = 'battlefleet_app_all') then
+        execute format('create policy battlefleet_app_all on %I for all to battlefleet_app using (true) with check (true)', t);
+      end if;
+    end loop;
+  end if;
+end $$;
