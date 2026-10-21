@@ -8,8 +8,8 @@ Every defect below was actually hit during development and fixed. None were inve
 | --- | --- | --- |
 | Type check | `npm run typecheck` | Pass, 0 errors |
 | Lint | `npm run lint` | Pass, 0 problems |
-| Unit + API/DB tests | `npm test` | **68 / 68 passed** (39 engine, 29 API) |
-| Browser tests | `npm run test:e2e` | **18 / 18 passed** (17 desktop at 1440×900, 1 mobile on Pixel 7) |
+| Unit + API/DB tests | `npm test` | **70 / 70 passed** (39 engine, 31 API) |
+| Browser tests | `npm run test:e2e` | **25 / 25 passed** (18 desktop at 1440×900, 1 mobile on Pixel 7, 6 phone/tablet layout runs) |
 | Production build | `npm run build` | Pass. JS 250 kB (79 kB gzip), CSS 23 kB |
 | AI simulation | `npm run simulate -- 5000` | See below |
 
@@ -17,6 +17,7 @@ Every defect below was actually hit during development and fixed. None were inve
 - The name input stops at 15 characters, and invalid names can't be submitted.
 - A profile with a custom avatar survives a reload. Renaming it persists.
 - A recovery code restores the profile in a fresh browser context.
+- **New recovery code from the profile:** "Show a new recovery code" → "Replace my old code" shows a fresh code. The current browser stays signed in, the old code is refused in a fresh browser, and the new code restores the profile there.
 - A taken name, in any case and with extra spaces, shows the "already registered" message and a link to sign in.
 - A returning player is recognised after reloads and after closing and reopening the browser (same player ID; the session cookie is HttpOnly and unreadable by scripts).
 - A localStorage token from the older build is moved into the cookie.
@@ -32,6 +33,13 @@ Every defect below was actually hit during development and fixed. None were inve
 - **Captain Brammer's turn:** his reply takes at least 1.9 s (normal speed, no test shortcut), the HUD reads "Captain Brammer is targeting…", and his hit/miss message is shown.
 - **Leaderboard play again:** the full leaderboard offers "Play again — Traditional Coding" after a Traditional game and opens the 15×15 placement screen.
 - **Mobile:** the 15×15 board fits a 412 px viewport with cells at least 19 px, there's no horizontal scroll, and the fleet/enemy toggle works.
+- **Phone and tablet breakpoints** (`e2e/responsive.spec.ts`), run on iPhone SE (320×568), iPhone 14 (390×664), Pixel 7 (412×839), iPhone 14 landscape (750×340), iPad Mini portrait (768×1024) and iPad Mini landscape (1024×768), all with touch emulation. One journey visits every screen: welcome, avatar creator, first recovery code, home, profile, new recovery code, placement, mode intros and battle for all three modes (plus the "Your fleet" tab on phones), the victory screen and the leaderboard. On each screen it checks:
+  - no sideways page scroll;
+  - no control cut off at the screen edge;
+  - every tappable control (outside the boards) is at least 24×24 px, the WCAG 2.2 minimum;
+  - boards fit on screen with cells at least 19 px;
+  - nothing is wider than the panel, board panel or table that holds it (content a panel would clip or hide behind a sideways scroll).
+  A full-page screenshot of each screen is saved per device.
 
 ### AI simulation (shots for each AI to sink a random fleet, 5,000 seeded games per row)
 
@@ -205,6 +213,44 @@ The difficulty order holds (Easy > Medium > Hard shots needed) on both board siz
   - Another E2E test checks that a localStorage token from the older build is migrated.
   - Another checks that a new avatar and name show in the header after a reload and on a historical leaderboard entry.
 
+### 20. The header pushed the profile button off screen on 320 px phones (responsive)
+- **Symptom:** the new breakpoint test failed on iPhone SE (320 px): "page scrolls sideways (348px content in 320px)" and the profile button was cut off at 308–348 px. Playwright couldn't tap it because the header overlapped it, so on a small phone the profile, and therefore the new recovery-code button, was unreachable without scrolling sideways.
+- **Cause:** the brand "Brammers BattleFleet AI" is a non-wrapping flex row. At 320 px it plus the mute and profile buttons needed 348 px.
+- **Fix:** below 520 px the brand can wrap onto two lines (`min-width: 0; flex-wrap: wrap`), the header gap shrinks, and the mute/profile buttons never shrink.
+- **Evidence:** the same test passes on all six phone and tablet sizes, with no sideways scroll on any screen.
+
+### 21. Touch targets under 24 px on tablets (accessibility)
+- **Symptom:** on iPad Mini portrait the breakpoint test flagged the header brand (home link, 228×16 px) and "View full leaderboard" (208×19 px) as too small to tap.
+- **Fix:** on touch screens (`@media (pointer: coarse)`) the brand and text-link buttons are at least 44 px tall. The look on desktop is unchanged.
+- **Evidence:** the breakpoint test passes on all six devices.
+
+### 22. The 15×15 board was clipped on 320 px phones (responsive)
+- **Symptom:** the first version of the breakpoint test passed, but the iPhone SE screenshots showed the Traditional board cut off in both placement and battle: the "Captain Brammer's waters" heading and the row numbers lost on the left, column O lost on the right. The test only compared boards with the screen edge, not with the panel around them, so I added the "wider than its box" check, which then failed.
+- **Cause:**
+  - Cell size came from `100vw` minus a fixed guess at the page and panel padding. At 320 px the guess was too small, so 16 × 19 px columns (row labels plus 15 cells) needed 304 px inside a 262 px panel.
+  - The board panel centred its content with `justify-content: center`, so the overflow spilled off both sides and the left part couldn't even be scrolled to.
+- **Fix:**
+  - Board panels are now size containers, and cells are sized from the panel's own width (`100cqw`), so the padding can't be guessed wrong.
+  - `justify-content: safe center` means a board that is ever too wide starts at the left edge and scrolls, instead of losing its left side.
+  - Below 520 px the board panel loses its side padding, the battle and placement pages use 0.5rem padding, and the row-number column is 14 px instead of a full cell. At 320 px that gives 19.2 px cells, so the 19 px minimum still holds.
+- **Evidence:** the breakpoint test passes on all six devices, and the iPhone SE screenshots show all of rows 1–15 and columns A–O.
+
+### 23. Leaderboard turns and time were hidden off to the right on phones (responsive)
+- **Symptom:** on phones the leaderboard table needed sideways scrolling inside its panel (369 px of table in a 257–349 px space). On a 320 px phone only rank, player and mode were visible; turns and time, the columns that decide the ranking, were off screen.
+- **Fix:** below 520 px the Assistance and Date columns are hidden, the mode is shown as a small label under the player's name instead of its own column, names are shortened with "…" after 9 characters (7.5 below 360 px), and cell padding is tighter. Rank, avatar, name, mode, turns and time all fit.
+- **Evidence:** the "wider than its box" check passes on the home, victory and full leaderboard screens on all six devices.
+
+### 24. Side-by-side boards overflowed their panels on iPad landscape (responsive)
+- **Symptom:** at 1024 px both battle boards were 4–6 px wider than their panels (477 px in 471 px), so the last column was slightly clipped.
+- **Cause:** the desktop cell size was `(min(100vw, 1320px) - 140px) / 2 / 16`, a fixed guess at the space taken by the page padding, gap and panel padding that was a little too small at that width.
+- **Fix:** the same container sizing as #22. Phones held sideways also size the board from the screen height, so the whole board fits on a 340 px tall screen once scrolled to it.
+- **Evidence:** the breakpoint test passes on iPad Mini landscape and iPhone 14 landscape.
+
+### Recovery code on the profile (feature, 21 Oct 2026)
+- Recovery codes are stored only as SHA-256 hashes, so the original can't be shown again. With the owner's choice, the profile has a "Show a new recovery code" button instead. After a confirm step, `POST /api/players/me/recovery-code` replaces the stored hash and returns the new code once, with Copy and Download. The old code stops working immediately; the current browser session is untouched.
+- The endpoint needs the session cookie, rejects non-JSON requests (CSRF), and is limited to 10 new codes per player per hour. The code is never written to `localStorage` or logs.
+- **Evidence:** API tests cover 401 without a session, 403 for non-JSON, the old code being refused (404) and the new one restoring the same player ID, and the 11th request in an hour getting 429. The E2E test covers the full flow in two browsers.
+
 ## Security review summary
 - The enemy fleet and unused assistance targets never leave the server while a game is active (engine test plus `publicGame()`).
 - Scores, turns, time and rank are computed on the server. The client never submits them.
@@ -215,7 +261,7 @@ The difficulty order holds (Easy > Medium > Hard shots needed) on both board siz
 
 ## Known limitations
 - Rate limiting reduces "restart until you get a lucky board" but can't fully stop it.
-- Clearing browser data without saving the recovery code loses the profile.
+- Clearing browser data without a saved recovery code loses the profile. While signed in, a new code can be made from the profile at any time.
 - Sound needs a user gesture first (browser autoplay policy).
 - Vercel's team alias `brammers-battlefleet-richard-brammr.vercel.app` is behind Vercel Authentication. Use the production URL below.
 

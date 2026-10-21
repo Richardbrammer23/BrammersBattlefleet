@@ -13,7 +13,7 @@ Classic Battleship against Captain Brammer, an AI admiral, played three ways. Ea
 ## Features
 
 - No login needed. You get a persistent profile with a unique display name (2–15 characters, profanity filtered, unique ignoring case and spaces; enforced by a database index) and a customisable SVG avatar: preset, hair, hair colour, skin tone, eyes, expression, facial hair, glasses/accessories, clothing and clothing colour.
-- The browser remembers you through an HttpOnly session cookie (about 13 months), so returning players go straight back to their profile. A recovery code moves your profile to another browser (no email needed). A name alone never signs anyone in.
+- The browser remembers you through an HttpOnly session cookie (about 13 months), so returning players go straight back to their profile. A recovery code moves your profile to another browser (no email needed). Lost it? While signed in, open your profile and choose "Show a new recovery code"; the old code stops working. A name alone never signs anyone in.
 - Two-click ship placement (mouse or keyboard): click a ship's first square, then a second square in the direction it should point, and the ship fills in. Squares where the selected ship can't start are greyed out, the directions that fit are shown, and Esc cancels. Randomise and Clear are also available.
 - Server-authoritative games, so the browser never sees the enemy fleet and never submits a score.
 - A public leaderboard (overall and per mode) that shows avatar, name, mode, assistance, human turns, time and date.
@@ -106,7 +106,7 @@ The `battlefleet_app` role can only select/insert/update/delete rows in the four
 
 ## Known limitations
 
-- Profiles are tied to a browser session cookie. If you clear site data or use a private window without saving your recovery code, the profile can't be restored there. There is no email sign-in (Supabase's built-in email only reaches project team members; it would need an SMTP provider).
+- Profiles are tied to a browser session cookie. If you clear site data or use a private window without a saved recovery code, the profile can't be restored there. Make a new code from your profile first if you've lost yours. There is no email sign-in (Supabase's built-in email only reaches project team members; it would need an SMTP provider).
 - Rate limiting reduces "restart until you get a lucky board" but can't stop it completely, because new games are free to start.
 - Per-IP limits rely on the `x-forwarded-for` header that Vercel sets.
 - Sound and music are synthesised with the Web Audio API and start only after the first click, tap or key press (browser autoplay rules).

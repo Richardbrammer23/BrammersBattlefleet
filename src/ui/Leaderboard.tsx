@@ -61,11 +61,11 @@ export function Leaderboard({ limit = 10, compact, refreshKey, highlightGameId, 
               <tr>
                 <th scope="col">#</th>
                 <th scope="col">Player</th>
-                <th scope="col">Mode</th>
-                {!compact && <th scope="col">Assistance</th>}
+                <th scope="col" className="lb-mode-col">Mode</th>
+                {!compact && <th scope="col" className="lb-extra">Assistance</th>}
                 <th scope="col" title="Human turns used to win">Turns</th>
                 <th scope="col">Time</th>
-                {!compact && <th scope="col">Date</th>}
+                {!compact && <th scope="col" className="lb-extra">Date</th>}
               </tr>
             </thead>
             <tbody>
@@ -75,16 +75,21 @@ export function Leaderboard({ limit = 10, compact, refreshKey, highlightGameId, 
                   <td>
                     <span className="lb-player">
                       <Avatar config={e.avatar} size={compact ? 26 : 32} title={`${e.displayName}'s avatar`} />
-                      <span className="lb-name">{e.displayName}</span>
+                      <span className="lb-who">
+                        <span className="lb-name">{e.displayName}</span>
+                        <span className={`mode-pill lb-mode-inline ${e.mode}`} aria-hidden>
+                          {modeName(e.mode)}
+                        </span>
+                      </span>
                     </span>
                   </td>
-                  <td>
+                  <td className="lb-mode-col">
                     <span className={`mode-pill ${e.mode}`}>{modeName(e.mode)}</span>
                   </td>
-                  {!compact && <td className="muted small">{e.assistanceStatus}</td>}
+                  {!compact && <td className="muted small lb-extra">{e.assistanceStatus}</td>}
                   <td className="mono strong">{e.humanTurns}</td>
                   <td className="mono">{formatDuration(e.durationMs)}</td>
-                  {!compact && <td className="muted small">{formatDate(e.endedAt)}</td>}
+                  {!compact && <td className="muted small lb-extra">{formatDate(e.endedAt)}</td>}
                 </tr>
               ))}
             </tbody>

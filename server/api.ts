@@ -180,6 +180,15 @@ async function updateMe(req: ApiRequest) {
   return ok({ player: publicPlayer(row) });
 }
 
+async function rotateRecoveryCode(req: ApiRequest) {
+  const p = await authPlayer(req);
+  await limit(`recovery-code:${p.id}`, 10, 3600);
+  // Only the hash is stored, so the old code can't be shown again; issuing a new one retires it.
+  const recoveryCode = newRecoveryCode();
+  await db()`update players set recovery_hash = ${sha256(normaliseRecoveryCode(recoveryCode))}, updated_at = now() where id = ${p.id}`;
+  return ok({ recoveryCode });
+}
+
 async function recover(req: ApiRequest) {
   await limit(`recover:${sha256(req.ip)}`, 10, 3600);
   const code = normaliseRecoveryCode(body(req).recoveryCode);
@@ -369,6 +378,8 @@ export async function handleApi(req: ApiRequest): Promise<ApiResponse> {
         return await getMe(req);
       case 'PATCH /players/me':
         return await updateMe(req);
+      case 'POST /players/me/recovery-code':
+        return await rotateRecoveryCode(req);
       case 'POST /players/recover':
         return await recover(req);
       case 'POST /games':

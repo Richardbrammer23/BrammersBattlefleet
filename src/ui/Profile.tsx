@@ -3,6 +3,7 @@ import { api, errorMessage, type Player, type Profile as ProfileData } from '../
 import { DEFAULT_AVATAR, type AvatarConfig } from '../avatar/options';
 import { ACHIEVEMENTS, NAME_MAX, nameError, type AchievementCode } from '../engine';
 import { AvatarCreator } from './AvatarCreator';
+import { RecoveryCodeCard } from './RecoveryCodeCard';
 import { formatDuration, modeName } from './format';
 
 interface Props {
@@ -17,7 +18,21 @@ export function Profile({ player, onSaved, onBack }: Props) {
   const [data, setData] = useState<ProfileData | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [recovery, setRecovery] = useState<{ step: 'idle' | 'confirm' | 'busy' } | { step: 'shown'; code: string }>({ step: 'idle' });
+  const [recoveryErr, setRecoveryErr] = useState<string | null>(null);
   const nameErr = nameError(name);
+
+  const issueRecoveryCode = async () => {
+    setRecovery({ step: 'busy' });
+    setRecoveryErr(null);
+    try {
+      const r = await api.newRecoveryCode();
+      setRecovery({ step: 'shown', code: r.recoveryCode });
+    } catch (e) {
+      setRecoveryErr(errorMessage(e));
+      setRecovery({ step: 'idle' });
+    }
+  };
 
   useEffect(() => {
     api.me().then(setData).catch(() => setData(null));
@@ -108,11 +123,43 @@ export function Profile({ player, onSaved, onBack }: Props) {
               ))}
             </ul>
           </section>
+          <section className="panel recovery-panel" data-testid="recovery-panel">
+            <h2>Recovery code</h2>
+            {recovery.step === 'shown' ? (
+              <RecoveryCodeCard
+                code={recovery.code}
+                title="Your new recovery code"
+                intro="Use this code to sign in on another device or after clearing browser data. Your previous code no longer works."
+              />
+            ) : (
+              <>
+                <p className="muted small">
+                  For your security we never store your code, so it can't be shown again. Make a new one whenever you need it. Your previous code will stop
+                  working.
+                </p>
+                {recoveryErr && <p className="error">{recoveryErr}</p>}
+                {recovery.step === 'idle' ? (
+                  <button className="btn ghost" onClick={() => setRecovery({ step: 'confirm' })} data-testid="recovery-new">
+                    Show a new recovery code
+                  </button>
+                ) : (
+                  <div className="row-actions start">
+                    <button className="btn primary" disabled={recovery.step === 'busy'} onClick={() => void issueRecoveryCode()} data-testid="recovery-confirm">
+                      Replace my old code
+                    </button>
+                    <button className="btn ghost" disabled={recovery.step === 'busy'} onClick={() => setRecovery({ step: 'idle' })}>
+                      Cancel
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </section>
           <section className="panel">
             <h2>Privacy</h2>
             <p className="muted small">
-              We store only your display name, avatar settings and game results. Your profile is tied to a secret token in this browser. Clearing browser data
-              without your recovery code means the profile can't be restored.
+              We store only your display name, avatar settings and game results. This browser remembers you with a secure cookie. If you clear browser data,
+              sign back in with a recovery code.
             </p>
           </section>
         </aside>

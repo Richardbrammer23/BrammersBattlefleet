@@ -96,6 +96,7 @@ export const api = {
   nameAvailable: (name: string) => request<{ available: boolean }>('GET', `/players/available?name=${encodeURIComponent(name)}`),
   me: () => request<Profile>('GET', '/players/me'),
   updateMe: (patch: { displayName?: string; avatar?: AvatarConfig | null }) => request<{ player: Player }>('PATCH', '/players/me', patch),
+  newRecoveryCode: () => request<{ recoveryCode: string }>('POST', '/players/me/recovery-code', {}),
   recover: (recoveryCode: string) => request<{ player: Player }>('POST', '/players/recover', { recoveryCode }),
   createGame: (mode: Mode, fleet: Fleet) => request<GameResponse>('POST', '/games', { mode, fleet }),
   activeGame: () => request<{ id: string | null; game: PublicGame | null }>('GET', '/games/active'),

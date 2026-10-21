@@ -1,6 +1,9 @@
 import { useState } from 'react';
 
-export function RecoveryCodeCard({ code }: { code: string }) {
+const FIRST_INTRO =
+  "Your profile is remembered in this browser. To restore it on another device — or if you clear browser data — you'll need this code. You can make a new one from your profile at any time.";
+
+export function RecoveryCodeCard({ code, title = 'Save your recovery code', intro = FIRST_INTRO }: { code: string; title?: string; intro?: string }) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     try {
@@ -20,11 +23,8 @@ export function RecoveryCodeCard({ code }: { code: string }) {
   };
   return (
     <div className="recovery">
-      <h2>Save your recovery code</h2>
-      <p className="muted">
-        Your profile is remembered in this browser. To restore it on another device — or if you clear browser data — you'll need this code. It is shown only
-        once and we can't recover it for you.
-      </p>
+      <h2>{title}</h2>
+      <p className="muted">{intro}</p>
       <code className="recovery-code" data-testid="recovery-code">
         {code}
       </code>
