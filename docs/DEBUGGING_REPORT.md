@@ -133,6 +133,16 @@ The difficulty order holds (Easy > Medium > Hard shots needed) on both board siz
 - **Fix:** with a start square chosen, any second click that isn't a valid straight-line placement is rejected. The start square stays put and the status line explains why: "Pick a square in the same row or column as E5", or "It doesn't fit that way" for a blocked direction. Clicking the start square again or pressing Esc still cancels.
 - **Verified:** the placement browser test now clicks a diagonal square, then checks that A1 is still the start square, no ship was placed and the message shows. All 14 browser tests and 57 unit tests pass.
 
+### 16. Sign-in and game start failed on the Vercel preview (deployment config)
+- **Symptom:** reported by the user. On the PR #1 preview, creating a profile and starting a game both failed with "Something went wrong (server_error)". `/api/health` still returned 200, but `/api/leaderboard` and `/api/players` returned 500.
+- **Root cause:** the Vercel runtime logs for the preview show `Error: DATABASE_URL is not configured` on every failing request (`server/db.ts:8`). `vercel env ls` showed `DATABASE_URL` set for **Production only**, so preview deployments had no database.
+- **Why not just copy the production value:** the preview would then write into the production tables, and test games would show on the real leaderboard.
+- **Fix:** `scripts/create-preview-db.ts` creates a separate `preview` schema in the same Supabase database, with its own copy of the tables, and a least-privilege `battlefleet_preview` login whose `search_path` is `preview`. Its pooler URL was added to Vercel as a **Sensitive, Preview-only** `DATABASE_URL`, piped from a local 0600 file, so it never appeared in code, logs or chat. Production settings are unchanged.
+- **Isolation verified (as `battlefleet_preview`):**
+  - `search_path` is `preview`, and it can read and write the preview tables.
+  - Reading `public.players` and `public.games` is denied with `42501 permission denied`, so it can't see production data.
+  - Creating tables is denied, and reading Supabase's `auth` schema is denied.
+
 ## Security review summary
 - The enemy fleet and unused assistance targets never leave the server while a game is active (engine test plus `publicGame()`).
 - Scores, turns, time and rank are computed on the server. The client never submits them.
