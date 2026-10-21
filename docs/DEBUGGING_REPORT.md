@@ -142,6 +142,13 @@ The difficulty order holds (Easy > Medium > Hard shots needed) on both board siz
   - `search_path` is `preview`, and it can read and write the preview tables.
   - Reading `public.players` and `public.games` is denied with `42501 permission denied`, so it can't see production data.
   - Creating tables is denied, and reading Supabase's `auth` schema is denied.
+- **Preview verified in a recorded browser play-test** on the PR #1 preview (production build, so real 2 s turns and no test seeds):
+  - A new profile with an avatar was created and survived a reload, as did an avatar change.
+  - Devin merge gave 9 autonomous hits with 0 human turns, and a full Devin game was won in 17 human turns. The win showed on the preview leaderboard with avatar and name.
+  - Code Assist accept showed 3 targets and decline showed 1. Traditional ran on 225 cells with no assistance.
+  - The fixed diagonal placement held E5. Captain Brammer replied after 2,001 ms with the board locked. Audio cues and mute behaved as designed, and Play again worked for all three modes.
+  - Across 96 preview responses there were no 4xx/5xx responses and no console or page errors. The only failures were 11 requests cancelled by the reloads themselves (`net::ERR_ABORTED`).
+  - A final read-only check of the production leaderboard did not include the preview test player.
 
 ## Security review summary
 - The enemy fleet and unused assistance targets never leave the server while a game is active (engine test plus `publicGame()`).
