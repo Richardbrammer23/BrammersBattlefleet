@@ -118,7 +118,17 @@ The difficulty order holds (Easy > Medium > Hard shots needed) on both board siz
 - Rate limiting reduces "restart until you get a lucky board" but can't fully stop it.
 - Clearing browser data without saving the recovery code loses the profile.
 - Sound needs a user gesture first (browser autoplay policy).
-- Live deployment checks are pending until hosting credentials are available (see the hand-off notes).
+- Vercel's team alias `brammers-battlefleet-richard-brammr.vercel.app` is behind Vercel Authentication. Use the production URL below.
+
+## Live verification (production)
+Deployed to https://brammers-battlefleet.vercel.app (Vercel, auto-deploys from `main`) with a dedicated Supabase Postgres project. The runtime connects as a restricted `battlefleet_app` role. That role can only read and write the four game tables. It was checked and is denied creating or dropping tables and reading the `auth` schema.
+
+- **API smoke test (16/16 passed):** 16-character name rejected; player created; enemy fleet absent from the client payload; Code Assist decline returns exactly 1 highlight; duplicate and out-of-bounds shots rejected (409); bad token rejected (401); recovery code restores the profile and invalidates the old token; abandoned game rejects shots; leaderboard reachable. The test-seed header is ignored in production.
+- **Browser tests against the live URL (2/2 passed):** desktop: profile, Devin merge (9 hits, 0 human turns), first human shot and AI reply, Code Assist decline (1 highlighted target), Traditional 15×15 board. Mobile (iPhone 13 viewport): the 15×15 board fits with no horizontal scroll.
+- **Secrets and headers:** the production JS/CSS bundle contains no database URL, Supabase host or project ref, `DATABASE_URL`, service-role value or token pattern. HSTS, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` and `Referrer-Policy` headers are present.
+- Test players were deleted afterwards, so the leaderboard starts empty.
+
+One defect turned up in the verification tooling, not in the app. The first smoke script sent shots as `{x, y}`, but the API expects `{r, c}`, so its first shot was rejected as out-of-bounds. The script was corrected and re-run. No app change was needed.
 
 ## Readiness
-Locally, the engine, API, UI, accessibility and responsive behaviour are complete and fully tested. Production readiness depends on deploying to Vercel with a Supabase database and repeating a smoke test against the live URL.
+The engine, API, UI, accessibility and responsive behaviour are complete and tested locally (55 unit/API, 11 browser tests) and in production (16 API checks, 2 live browser tests). The app is ready for public play.
