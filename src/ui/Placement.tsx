@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { MODES, placementError, randomFleet, Rng, shipCells, SHIPS, type Fleet, type Mode, type Orientation, type ShipId } from '../engine';
+import { MODES, placementError, randomFleet, Rng, shipCells, shipOptions, shipTowards, SHIPS, type Coord, type Fleet, type Mode, type ShipId } from '../engine';
+import { cellLabel } from './format';
 import { Board, type CellView } from './Board';
 import { ModeCharacter } from './Characters';
 
@@ -15,24 +16,19 @@ export function Placement({ mode, busy, error, onStart, onBack }: Props) {
   const size = MODES[mode].boardSize;
   const [fleet, setFleet] = useState<Fleet>([]);
   const [selected, setSelected] = useState<ShipId | null>('carrier');
-  const [orientation, setOrientation] = useState<Orientation>('H');
-  const [hover, setHover] = useState<{ r: number; c: number } | null>(null);
+  const [anchor, setAnchor] = useState<Coord | null>(null);
+  const [hint, setHint] = useState<string | null>(null);
+  const [hover, setHover] = useState<Coord | null>(null);
 
   const nextUnplaced = useCallback((f: Fleet) => SHIPS.find((s) => !f.some((x) => x.id === s.id))?.id ?? null, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.key === 'r' || e.key === 'R') && !(e.target instanceof HTMLInputElement)) setOrientation((o) => (o === 'H' ? 'V' : 'H'));
+      if (e.key === 'Escape') setAnchor(null);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
-
-  const preview = useMemo(() => {
-    if (!selected || !hover) return null;
-    const ship = { id: selected, r: hover.r, c: hover.c, orientation };
-    return { cells: shipCells(ship), valid: !placementError(fleet, ship, size) };
-  }, [selected, hover, orientation, fleet, size]);
 
   const occupied = useMemo(() => {
     const m = new Map<string, ShipId>();
@@ -40,37 +36,80 @@ export function Placement({ mode, busy, error, onStart, onBack }: Props) {
     return m;
   }, [fleet]);
 
+  // Squares that could start the selected ship (at least one direction fits).
+  const anchorable = useMemo(() => {
+    const ok = new Set<string>();
+    if (!selected) return ok;
+    for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) if (shipOptions(fleet, selected, { r, c }, size).length) ok.add(`${r},${c}`);
+    return ok;
+  }, [fleet, selected, size]);
+
+  const options = useMemo(() => (selected && anchor ? shipOptions(fleet, selected, anchor, size) : []), [fleet, selected, anchor, size]);
+  const optionCells = useMemo(() => new Set(options.flatMap(shipCells).map((p) => `${p.r},${p.c}`)), [options]);
+
+  const preview = useMemo(() => {
+    if (!selected || !hover) return null;
+    if (!anchor) return { cells: [hover], valid: anchorable.has(`${hover.r},${hover.c}`) };
+    const ship = shipTowards(selected, anchor, hover);
+    if (!ship) return null;
+    return { cells: shipCells(ship), valid: !placementError(fleet, ship, size) };
+  }, [selected, hover, anchor, anchorable, fleet, size]);
+
   const cell = (r: number, c: number): CellView => {
+    const k = `${r},${c}`;
     const inPreview = preview?.cells.some((p) => p.r === r && p.c === c);
+    const isAnchor = anchor?.r === r && anchor?.c === c;
     return {
-      state: occupied.has(`${r},${c}`) ? 'ship' : 'empty',
-      preview: inPreview ? (preview!.valid ? 'valid' : 'invalid') : undefined,
+      state: occupied.has(k) ? 'ship' : 'empty',
+      preview: isAnchor ? 'anchor' : inPreview ? (preview!.valid ? 'valid' : 'invalid') : optionCells.has(k) ? 'option' : undefined,
+      blocked: !!selected && !anchor && !occupied.has(k) && !anchorable.has(k),
     };
   };
 
   const place = (r: number, c: number) => {
-    const at = occupied.get(`${r},${c}`);
-    if (!selected && at) {
+    const k = `${r},${c}`;
+    setHint(null);
+    const at = occupied.get(k);
+    if (at && !anchor) {
       // Pick a placed ship back up.
-      const ship = fleet.find((s) => s.id === at)!;
       setFleet(fleet.filter((s) => s.id !== at));
       setSelected(at);
-      setOrientation(ship.orientation);
       return;
     }
     if (!selected) return;
-    const ship = { id: selected, r, c, orientation };
-    if (placementError(fleet, ship, size)) return;
-    const next = [...fleet.filter((s) => s.id !== selected), ship];
-    setFleet(next);
-    setSelected(nextUnplaced(next));
+    if (!anchor) {
+      if (anchorable.has(k)) setAnchor({ r, c });
+      return;
+    }
+    if (anchor.r === r && anchor.c === c) return setAnchor(null);
+    const ship = shipTowards(selected, anchor, { r, c });
+    if (ship && !placementError(fleet, ship, size)) {
+      const next = [...fleet.filter((s) => s.id !== selected), ship];
+      setFleet(next);
+      setSelected(nextUnplaced(next));
+      setAnchor(null);
+    } else {
+      // Keep the anchor and explain, rather than silently moving the start square.
+      const from = cellLabel(anchor.r, anchor.c);
+      setHint(ship ? `It doesn't fit that way from ${from}. Try another direction.` : `Pick a square in the same row or column as ${from}.`);
+    }
   };
 
   const randomise = () => {
     const f = randomFleet(size, new Rng((Math.random() * 2 ** 32) >>> 0));
     setFleet(f);
     setSelected(null);
+    setAnchor(null);
   };
+
+  const spec = SHIPS.find((s) => s.id === selected);
+  const status = !spec
+    ? fleet.length === SHIPS.length
+      ? 'Fleet ready. Click a ship to move it, or begin the battle.'
+      : 'Select a ship, or click a placed ship to move it.'
+    : anchor
+      ? hint ?? `${spec.name} starts at ${cellLabel(anchor.r, anchor.c)}. Click a square next to it to point the ship that way.`
+      : `Click the first square for your ${spec.name} (${spec.length} squares).`;
 
   const complete = fleet.length === SHIPS.length;
 
@@ -102,7 +141,10 @@ export function Placement({ mode, busy, error, onStart, onBack }: Props) {
         </div>
         <aside className="panel dock">
           <h2>Shipyard</h2>
-          <p className="muted small">Select a ship, then click the grid. Click a placed ship to move it. Press R to rotate.</p>
+          <p className="muted small">Pick a ship, click its first square, then click the next square in the direction it should point. The rest fills in automatically.</p>
+          <p className="placement-status small" aria-live="polite" data-testid="placement-status">
+            {status}
+          </p>
           <ul className="ship-list">
             {SHIPS.map((s) => {
               const placed = fleet.some((f) => f.id === s.id);
@@ -113,8 +155,10 @@ export function Placement({ mode, busy, error, onStart, onBack }: Props) {
                     onClick={() => {
                       setFleet(fleet.filter((f) => f.id !== s.id));
                       setSelected(s.id);
+                      setAnchor(null);
                     }}
                     aria-pressed={selected === s.id}
+                    data-testid={`ship-${s.id}`}
                   >
                     <span>{s.name}</span>
                     <span className="ship-pips" aria-label={`length ${s.length}`}>
@@ -129,9 +173,6 @@ export function Placement({ mode, busy, error, onStart, onBack }: Props) {
             })}
           </ul>
           <div className="dock-actions">
-            <button className="btn ghost" onClick={() => setOrientation((o) => (o === 'H' ? 'V' : 'H'))}>
-              Rotate ({orientation === 'H' ? 'Horizontal' : 'Vertical'})
-            </button>
             <button className="btn ghost" onClick={randomise} data-testid="randomise">
               Randomise
             </button>
@@ -140,6 +181,7 @@ export function Placement({ mode, busy, error, onStart, onBack }: Props) {
               onClick={() => {
                 setFleet([]);
                 setSelected('carrier');
+                setAnchor(null);
               }}
             >
               Clear

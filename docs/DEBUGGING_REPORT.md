@@ -8,9 +8,9 @@ Every defect below was actually hit during development and fixed. None were inve
 | --- | --- | --- |
 | Type check | `npm run typecheck` | Pass, 0 errors |
 | Lint | `npm run lint` | Pass, 0 problems |
-| Unit + API/DB tests | `npm test` | **55 / 55 passed** (37 engine, 18 API) |
-| Browser tests | `npm run test:e2e` | **11 / 11 passed** (10 desktop at 1440×900, 1 mobile on Pixel 7) |
-| Production build | `npm run build` | Pass. JS 245 kB (77 kB gzip), CSS 22 kB |
+| Unit + API/DB tests | `npm test` | **57 / 57 passed** (39 engine, 18 API) |
+| Browser tests | `npm run test:e2e` | **14 / 14 passed** (13 desktop at 1440×900, 1 mobile on Pixel 7) |
+| Production build | `npm run build` | Pass. JS 250 kB (79 kB gzip), CSS 23 kB |
 | AI simulation | `npm run simulate -- 5000` | See below |
 
 ### What the browser tests cover
@@ -24,6 +24,9 @@ Every defect below was actually hit during development and fixed. None were inve
 - **Traditional:** the board has 225 cells and no highlights. A repeat shot is blocked and doesn't add a turn. The keyboard works (arrow keys move focus, Enter fires). The timer runs.
 - **Traditional loss:** a player who only misses is defeated by the Hard AI and isn't ranked.
 - An in-progress game resumes after a reload. Restart abandons it.
+- **Two-click placement:** the first square shows only the directions that fit; a second square in the same row or column (adjacent or further away) fills the ship in right, down, left or up. Clicking the first square again cancels. All 17 cells get placed.
+- **Captain Brammer's turn:** his reply takes at least 1.9 s (normal speed, no test shortcut), the HUD reads "Captain Brammer is targeting…", and his hit/miss message is shown.
+- **Leaderboard play again:** the full leaderboard offers "Play again — Traditional Coding" after a Traditional game and opens the 15×15 placement screen.
 - **Mobile:** the 15×15 board fits a 412 px viewport with cells at least 19 px, there's no horizontal scroll, and the fleet/enemy toggle works.
 
 ### AI simulation (shots for each AI to sink a random fleet, 5,000 seeded games per row)
@@ -105,6 +108,47 @@ The difficulty order holds (Easy > Medium > Hard shots needed) on both board siz
 - **Symptom:** the test timed out clicking a cell it had already fired at.
 - **Root cause:** the UI marks fired cells `aria-disabled`, which Playwright treats as not clickable. The UI was already blocking the duplicate, which is the behaviour the requirement asks for.
 - **Fix:** the test now checks `aria-disabled="true"`, force-clicks, and confirms the turn counter doesn't change. The server-side duplicate rejection is covered separately by an API test.
+
+### 12. Hit/miss messages vanished almost instantly with reduced motion (accessibility)
+- **Symptom:** the new browser test for Captain Brammer's reply couldn't find his "missed at …" message, even though his shot had landed on the board.
+- **Root cause:** toasts were hidden with the same timer helper as animations. That helper shortens every delay to 80 ms when the player prefers reduced motion, so the shot messages were gone before anyone could read them. It had been like this since the first version; no earlier test checked toast text.
+- **Fix:** toasts now always stay on screen for 2.2 s. Reduced motion still shortens the animations.
+- **Verified:** the Captain Brammer test now finds the message (the browser tests run with reduced motion on).
+
+### 13. Fast test mode for Captain Brammer's delay was ignored (test harness)
+- **Symptom:** after adding the 2-second delay, the Devin win test failed and the Traditional loss test timed out.
+- **Root cause:** the delay was read once, when the battle code loaded. The dev-only `?fastAi=1` flag is saved when the app first renders, which is later, so tests always got the full 2 s per turn.
+- **Fix:** the delay is now read at the start of each of Captain Brammer's turns.
+- **Verified:** the full suite runs at its old speed. Production always uses 2 s: the fast flag only exists in dev builds and isn't in the production bundle.
+
+### 14. The E2E `fire` step raced the victory screen (test design)
+- **Symptom:** the Devin win test failed now and then because the cell it had just fired at was "not found". In repeated runs the Traditional loss test also timed out waiting for the HUD.
+- **Root cause:** with reduced motion, the result screen replaces the battle screen 80 ms after the last shot. The board and HUD disappear, and the tests sometimes looked for them after they were gone.
+- **Fix:** the `fire` helper accepts either the updated cell or the result screen. The loss loop stops when the result screen is showing or the HUD reads "Defeat".
+- **Verified:** the loss test passed 4 repeated runs, and the full browser suite passes.
+
+### 15. A diagonal second click moved the ship's start square (placement UX)
+- **Symptom:** found in the recorded play-test. Selecting the Carrier, clicking E5, then clicking F6 (diagonal) placed nothing, and the start square silently jumped from E5 to F6.
+- **Root cause:** `shipTowards` correctly returns no ship for a diagonal click, but the click handler in `Placement.tsx` then treated the click as a new first square whenever that square was a legal start.
+- **Fix:** with a start square chosen, any second click that isn't a valid straight-line placement is rejected. The start square stays put and the status line explains why: "Pick a square in the same row or column as E5", or "It doesn't fit that way" for a blocked direction. Clicking the start square again or pressing Esc still cancels.
+- **Verified:** the placement browser test now clicks a diagonal square, then checks that A1 is still the start square, no ship was placed and the message shows. All 14 browser tests and 57 unit tests pass.
+
+### 16. Sign-in and game start failed on the Vercel preview (deployment config)
+- **Symptom:** reported by the user. On the PR #1 preview, creating a profile and starting a game both failed with "Something went wrong (server_error)". `/api/health` still returned 200, but `/api/leaderboard` and `/api/players` returned 500.
+- **Root cause:** the Vercel runtime logs for the preview show `Error: DATABASE_URL is not configured` on every failing request (`server/db.ts:8`). `vercel env ls` showed `DATABASE_URL` set for **Production only**, so preview deployments had no database.
+- **Why not just copy the production value:** the preview would then write into the production tables, and test games would show on the real leaderboard.
+- **Fix:** `scripts/create-preview-db.ts` creates a separate `preview` schema in the same Supabase database, with its own copy of the tables, and a least-privilege `battlefleet_preview` login whose `search_path` is `preview`. Its pooler URL was added to Vercel as a **Sensitive, Preview-only** `DATABASE_URL`, piped from a local 0600 file, so it never appeared in code, logs or chat. Production settings are unchanged.
+- **Isolation verified (as `battlefleet_preview`):**
+  - `search_path` is `preview`, and it can read and write the preview tables.
+  - Reading `public.players` and `public.games` is denied with `42501 permission denied`, so it can't see production data.
+  - Creating tables is denied, and reading Supabase's `auth` schema is denied.
+- **Preview verified in a recorded browser play-test** on the PR #1 preview (production build, so real 2 s turns and no test seeds):
+  - A new profile with an avatar was created and survived a reload, as did an avatar change.
+  - Devin merge gave 9 autonomous hits with 0 human turns, and a full Devin game was won in 17 human turns. The win showed on the preview leaderboard with avatar and name.
+  - Code Assist accept showed 3 targets and decline showed 1. Traditional ran on 225 cells with no assistance.
+  - The fixed diagonal placement held E5. Captain Brammer replied after 2,001 ms with the board locked. Audio cues and mute behaved as designed, and Play again worked for all three modes.
+  - Across 96 preview responses there were no 4xx/5xx responses and no console or page errors. The only failures were 11 requests cancelled by the reloads themselves (`net::ERR_ABORTED`).
+  - A final read-only check of the production leaderboard did not include the preview test player.
 
 ## Security review summary
 - The enemy fleet and unused assistance targets never leave the server while a game is active (engine test plus `publicGame()`).

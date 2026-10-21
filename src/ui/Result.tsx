@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import type { Player, Victory } from '../api';
 import { MODES, type PublicGame } from '../engine';
 import { Avatar } from './Avatar';
-import { formatDuration, prefersReducedMotion } from './format';
+import { formatDuration, OPPONENT, prefersReducedMotion } from './format';
 import { Leaderboard } from './Leaderboard';
 import { play } from './sound';
 
@@ -34,7 +34,7 @@ export function Result({ gameId, game, victory, player, onPlayAgain, onLeaderboa
       )}
       <section className="panel result-card">
         <p className="eyebrow">{MODES[game.mode].title}</p>
-        <h1 data-testid="result-title">{won ? 'Victory! Enemy fleet destroyed' : 'Defeat — your fleet was sunk'}</h1>
+        <h1 data-testid="result-title">{won ? `Victory! ${OPPONENT}'s fleet destroyed` : `Defeat — ${OPPONENT} sank your fleet`}</h1>
         <div className="result-player">
           <Avatar config={player.avatar} size={72} />
           <div>

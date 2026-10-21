@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, clearToken, errorMessage, getToken, ApiError, type Player, type Victory } from './api';
-import type { Fleet, Mode, PublicGame } from './engine';
+import { MODES, type Fleet, type Mode, type PublicGame } from './engine';
 import { Avatar } from './ui/Avatar';
 import { Battle } from './ui/Battle';
 import { Home } from './ui/Home';
@@ -8,7 +8,8 @@ import { Leaderboard } from './ui/Leaderboard';
 import { Placement } from './ui/Placement';
 import { Profile } from './ui/Profile';
 import { Result } from './ui/Result';
-import { isMuted, play, setMuted } from './ui/sound';
+import { modeName } from './ui/format';
+import { isMuted, play, setAmbience, setMuted } from './ui/sound';
 import { Welcome } from './ui/Welcome';
 
 type Screen =
@@ -27,10 +28,27 @@ export default function App() {
   const [muted, setMutedState] = useState(isMuted());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastMode, setLastMode] = useState<Mode | null>(() => {
+    const m = localStorage.getItem('bbf.lastMode');
+    return m && m in MODES ? (m as Mode) : null;
+  });
+
+  useEffect(() => {
+    setAmbience(screen.name === 'battle' ? 'sonar' : 'music');
+  }, [screen.name]);
+
+  useEffect(() => {
+    const mode = screen.name === 'placement' ? screen.mode : screen.name === 'battle' || screen.name === 'result' ? screen.game.mode : null;
+    if (mode) {
+      setLastMode(mode);
+      localStorage.setItem('bbf.lastMode', mode);
+    }
+  }, [screen]);
 
   useEffect(() => {
     const seed = new URLSearchParams(location.search).get('testSeed');
     if (seed) sessionStorage.setItem('bbf.testSeed', seed);
+    if (import.meta.env.DEV && new URLSearchParams(location.search).has('fastAi')) sessionStorage.setItem('bbf.fastAi', '1');
     (async () => {
       if (!getToken()) return setScreen({ name: 'welcome' });
       try {
@@ -121,6 +139,13 @@ export default function App() {
               ← Back
             </button>
             <h1>Full leaderboard</h1>
+            <button
+              className="btn primary page-head-action"
+              onClick={() => go(lastMode ? { name: 'placement', mode: lastMode } : { name: 'home' })}
+              data-testid="leaderboard-play-again"
+            >
+              {lastMode ? `Play again — ${modeName(lastMode)}` : 'Play now'}
+            </button>
           </div>
           <Leaderboard limit={100} title="All verified victories (top 100)" />
         </main>

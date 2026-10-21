@@ -4,7 +4,8 @@ import { cellLabel, colLabel } from './format';
 export type CellView = {
   state: 'empty' | 'ship' | 'miss' | 'hit' | 'sunk';
   highlighted?: boolean;
-  preview?: 'valid' | 'invalid';
+  preview?: 'valid' | 'invalid' | 'option' | 'anchor';
+  blocked?: boolean;
   justHit?: boolean;
   revealed?: boolean;
   shipEdge?: string;
@@ -64,6 +65,7 @@ export function Board({ size, label, cell, onFire, onHover, interactive, testId 
                 v.preview ? `preview-${v.preview}` : '',
                 v.justHit ? 'just' : '',
                 v.revealed ? 'revealed' : '',
+                v.blocked ? 'blocked' : '',
                 interactive && !fired ? 'clickable' : '',
               ].join(' ');
               return (

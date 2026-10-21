@@ -17,6 +17,8 @@ import {
   Rng,
   shipAt,
   shipCells,
+  shipOptions,
+  shipTowards,
   SHIPS,
   startGame,
   TOTAL_SHIP_CELLS,
@@ -67,6 +69,30 @@ describe('fleet placement', () => {
     expect(placementError([], { id: 'carrier', r: -1, c: 0, orientation: 'V' }, 10)).toBe('out_of_bounds');
     expect(placementError([], { id: 'carrier', r: 0, c: 5, orientation: 'H' }, 10)).toBeNull();
     expect(placementError([], { id: 'carrier', r: 0, c: 10, orientation: 'H' }, 15)).toBeNull();
+  });
+
+  it('builds a ship from an anchor square towards a second square in any direction', () => {
+    expect(shipTowards('cruiser', { r: 4, c: 4 }, { r: 4, c: 5 })).toEqual({ id: 'cruiser', r: 4, c: 4, orientation: 'H' });
+    expect(shipTowards('cruiser', { r: 4, c: 4 }, { r: 4, c: 0 })).toEqual({ id: 'cruiser', r: 4, c: 2, orientation: 'H' });
+    expect(shipTowards('cruiser', { r: 4, c: 4 }, { r: 9, c: 4 })).toEqual({ id: 'cruiser', r: 4, c: 4, orientation: 'V' });
+    expect(shipTowards('cruiser', { r: 4, c: 4 }, { r: 3, c: 4 })).toEqual({ id: 'cruiser', r: 2, c: 4, orientation: 'V' });
+    expect(shipTowards('cruiser', { r: 4, c: 4 }, { r: 5, c: 5 })).toBeNull();
+    expect(shipTowards('cruiser', { r: 4, c: 4 }, { r: 4, c: 4 })).toBeNull();
+  });
+
+  it('only offers placement directions that stay on the board and avoid other ships', () => {
+    expect(shipOptions([], 'carrier', { r: 0, c: 0 }, 10).map((s) => [s.r, s.c, s.orientation])).toEqual([
+      [0, 0, 'H'],
+      [0, 0, 'V'],
+    ]);
+    expect(shipOptions([], 'destroyer', { r: 5, c: 5 }, 10)).toHaveLength(4);
+    const blocker = [{ id: 'carrier' as const, r: 0, c: 1, orientation: 'V' as const }];
+    expect(shipOptions(blocker, 'battleship', { r: 0, c: 0 }, 10).map((s) => s.orientation)).toEqual(['V']);
+    const boxed = [
+      { id: 'carrier' as const, r: 0, c: 1, orientation: 'V' as const },
+      { id: 'battleship' as const, r: 1, c: 0, orientation: 'H' as const },
+    ];
+    expect(shipOptions(boxed, 'destroyer', { r: 0, c: 0 }, 10)).toEqual([]);
   });
 
   it('rejects overlapping ships', () => {
