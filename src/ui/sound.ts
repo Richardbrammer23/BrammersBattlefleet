@@ -19,6 +19,7 @@ const MUTE_KEY = 'bbf.muted';
 let ctx: AudioContext | null = null;
 let muted = typeof localStorage !== 'undefined' && localStorage.getItem(MUTE_KEY) === '1';
 let unlocked = false;
+let away = typeof document !== 'undefined' && document.hidden;
 let wanted: Ambience = null;
 let running: { kind: Exclude<Ambience, null>; stop: () => void } | null = null;
 
@@ -29,37 +30,90 @@ export function setMuted(m: boolean) {
   syncAmbience();
 }
 
-/** Background music on menus, sonar during battle. Starts after the first user gesture (browser autoplay rules). */
+/** Background music on menus, sonar during battle. */
 export function setAmbience(a: Ambience) {
   wanted = a;
   syncAmbience();
 }
 
+/**
+ * 'blocked': the browser is holding sound until the first tap or key press (autoplay rules).
+ * 'paused': the player has switched tab, window or app.
+ */
+export type SoundStatus = 'unsupported' | 'muted' | 'blocked' | 'paused' | 'playing';
+const listeners = new Set<() => void>();
+export function soundStatus(): SoundStatus {
+  if (typeof window === 'undefined' || !('AudioContext' in window)) return 'unsupported';
+  if (muted) return 'muted';
+  if (!unlocked) return 'blocked';
+  return away ? 'paused' : 'playing';
+}
+export function subscribeSound(fn: () => void) {
+  listeners.add(fn);
+  return () => void listeners.delete(fn);
+}
+function publish() {
+  if (typeof document !== 'undefined') {
+    document.documentElement.dataset.sound = soundStatus();
+    if (ctx) document.documentElement.dataset.audioContext = ctx.state;
+  }
+  listeners.forEach((fn) => fn());
+}
+
 function audio(): AudioContext | null {
   if (typeof window === 'undefined' || !('AudioContext' in window)) return null;
-  ctx ??= new AudioContext();
-  if (ctx.state === 'suspended') void ctx.resume();
+  if (!ctx) {
+    ctx = new AudioContext();
+    ctx.addEventListener('statechange', () => {
+      if (ctx?.state === 'running' && !away) unlock();
+      publish();
+    });
+    if (ctx.state === 'running') queueMicrotask(unlock);
+  }
+  if (ctx.state === 'suspended' && !away) void ctx.resume();
   return ctx;
 }
 
+function unlock() {
+  if (unlocked) return;
+  unlocked = true;
+  for (const e of GESTURES) window.removeEventListener(e, unlock);
+  syncAmbience();
+}
+
+const GESTURES = ['pointerdown', 'keydown', 'touchend'] as const;
+
+/** Pause everything while the game isn't in view (other tab, minimised window, another app); resume on return. */
+function setAway(a: boolean) {
+  if (away === a) return;
+  away = a;
+  if (ctx && unlocked) void (a ? ctx.suspend() : ctx.resume());
+  publish();
+}
+
 if (typeof window !== 'undefined') {
-  const unlock = () => {
-    unlocked = true;
-    window.removeEventListener('pointerdown', unlock);
-    window.removeEventListener('keydown', unlock);
-    syncAmbience();
-  };
-  window.addEventListener('pointerdown', unlock);
-  window.addEventListener('keydown', unlock);
+  for (const e of GESTURES) window.addEventListener(e, unlock);
+  document.addEventListener('visibilitychange', () => setAway(document.hidden));
+  window.addEventListener('blur', () => setAway(true));
+  window.addEventListener('focus', () => setAway(document.hidden));
+  window.addEventListener('pagehide', () => setAway(true));
+  window.addEventListener('pageshow', () => setAway(document.hidden));
+  // Start straight away when the browser allows it (e.g. a site the visitor often plays sound on);
+  // otherwise the context stays suspended until the first gesture.
+  const policy = (navigator as Navigator & { getAutoplayPolicy?: (t: 'audiocontext') => string }).getAutoplayPolicy?.('audiocontext');
+  if (!muted && policy !== 'disallowed') audio();
+  publish();
 }
 
 function syncAmbience() {
   const target = muted || !unlocked ? null : wanted;
-  if ((running?.kind ?? null) === target) return;
-  running?.stop();
-  running = null;
-  const ac = target && audio();
-  if (target && ac) running = { kind: target, stop: startAmbience(ac, target) };
+  if ((running?.kind ?? null) !== target) {
+    running?.stop();
+    running = null;
+    const ac = target && audio();
+    if (target && ac) running = { kind: target, stop: startAmbience(ac, target) };
+  }
+  publish();
 }
 
 function tone(ac: AudioContext, freq: number, start: number, dur: number, type: OscillatorType, gain = 0.15, slideTo?: number) {
