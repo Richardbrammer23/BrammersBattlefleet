@@ -2,6 +2,40 @@
 
 Every defect below was actually hit during development and fixed. None were invented. Results come from real runs on the development VM (Node 20.20.2, Postgres 16 in Docker, Chromium headless via Playwright).
 
+## Project overview
+Brammers BattleFleet AI is a browser Battleship game against an AI admiral, Captain Brammer. It has three modes, each standing for a style of software development:
+- **Devin:** autonomous execution. 10×10 board against the Easy AI. Merging Devin's simulated PR lands 9 hits.
+- **Code Assist:** assisted development. 10×10 board against the Medium AI. Accepting highlights 3 targets.
+- **Traditional Coding:** manual. 15×15 board against the Hard AI, with no help.
+
+Play is server-authoritative:
+- The browser never sees the enemy fleet.
+- Turns, time and rank are computed on the server and recorded on a public leaderboard.
+- Live at https://brammers-battlefleet.vercel.app. Built with React, TypeScript, Vite, Vercel serverless functions and Supabase Postgres.
+
+## Testing methodology
+- **Unit tests (Vitest):** cover the pure engine (fleet rules, shots, assistance, the 3 AIs, achievements and names) with fixed seeds.
+- **API/database integration tests (Vitest):** run against a real local Postgres. They cover:
+  - auth, cookies, unique names and recovery;
+  - concurrency (parallel requests against row locks) and rate limits;
+  - the turn gap and leaderboard ranking.
+- **Browser tests (Playwright):** cover full player journeys on desktop and mobile, plus layout checks on 6 phone and tablet sizes. They use fixed seeds and a fast-AI flag that only work in local test runs.
+- **AI simulation:** `npm run simulate` checks that the AIs get harder from Easy to Medium to Hard.
+- **Isolated Preview checks:** every PR gets a Vercel Preview. All Previews share one `preview` database schema, separate from production. Recorded browser play-tests ran there, so the live leaderboard stayed clean.
+- **Production checks:** smoke tests after merges used throwaway players, which were deleted afterwards.
+- **Bug workflow:** each bug was reproduced first, then given a regression test that failed before the fix where practical. It was fixed on a branch, reviewed in a PR (with Devin Review on the later ones) and merged only with the owner's approval.
+
+### Where each fix landed
+| Bugs | Where | Commit |
+| --- | --- | --- |
+| 1–11 | Initial build, pushed to `main` before the PR workflow started | [`65813ba`](https://github.com/Richardbrammer23/BrammersBattlefleet/commit/65813ba) |
+| 12–16 | [PR #1](https://github.com/Richardbrammer23/BrammersBattlefleet/pull/1): Captain Brammer, 2 s turns, audio, two-click placement, isolated Preview | [`e12bfb0`](https://github.com/Richardbrammer23/BrammersBattlefleet/commit/e12bfb0) |
+| 17 | [PR #2](https://github.com/Richardbrammer23/BrammersBattlefleet/pull/2): production smoke test and deploy-delay report | [`0b22093`](https://github.com/Richardbrammer23/BrammersBattlefleet/commit/0b22093) |
+| 18–19 | [PR #3](https://github.com/Richardbrammer23/BrammersBattlefleet/pull/3): unique names, HttpOnly session cookie | [`3579946`](https://github.com/Richardbrammer23/BrammersBattlefleet/commit/3579946) |
+| 20–24 | [PR #4](https://github.com/Richardbrammer23/BrammersBattlefleet/pull/4): new recovery code from the profile, phone/tablet layouts | [`c7d3248`](https://github.com/Richardbrammer23/BrammersBattlefleet/commit/c7d3248) |
+| 25–27 | [PR #5](https://github.com/Richardbrammer23/BrammersBattlefleet/pull/5): sound autoplay, pause when away, start sound from text input | [`81eeed9`](https://github.com/Richardbrammer23/BrammersBattlefleet/commit/81eeed9) |
+| 28, leaderboard cap | [PR #6](https://github.com/Richardbrammer23/BrammersBattlefleet/pull/6): server-enforced turn gap, leaderboard capped at 20 places | [`5f5b0d8`](https://github.com/Richardbrammer23/BrammersBattlefleet/commit/5f5b0d8) |
+
 ## Test results
 
 | Check | Command | Result |
@@ -294,6 +328,8 @@ The difficulty order holds (Easy > Medium > Hard shots needed) on both board siz
 - Clearing browser data without a saved recovery code loses the profile. While signed in, a new code can be made from the profile at any time.
 - Browsers that block autoplay (the default for a first visit) still need one tap, click or key press before any sound. The game shows a hint and starts the music on that first gesture.
 - Vercel's team alias `brammers-battlefleet-richard-brammr.vercel.app` is behind Vercel Authentication. Use the production URL below.
+- Safari and Firefox haven't been run through the automated suite, which uses Chromium only. The owner checked the layout on a real phone.
+- `npm audit` reports 0 vulnerabilities in production dependencies. It reports 11 in development tooling (1 moderate, 10 high), mostly pulled in by `@vercel/node`. None of these ship to the browser.
 
 ## Live verification (production)
 Deployed to https://brammers-battlefleet.vercel.app (Vercel, auto-deploys from `main`) with a dedicated Supabase Postgres project. The runtime connects as a restricted `battlefleet_app` role. That role can only read and write the four game tables. It was checked and is denied creating or dropping tables and reading the `auth` schema.
@@ -339,7 +375,7 @@ This was a recorded browser run against https://brammers-battlefleet.vercel.app.
 - How the music and sounds actually sound: needs a human listener.
 - The new build on real phones: the mobile layout is covered by the local Pixel 7 E2E test.
 
-## Readiness
+## Readiness after PR #1 (21 Oct 2026)
 **Tests run for this sign-off, on `main` at `e12bfb0`:**
 - Typecheck and lint are clean.
 - Vitest: 57/57.
@@ -357,3 +393,54 @@ This was a recorded browser run against https://brammers-battlefleet.vercel.app.
 - A profile is lost if browser data is cleared and the recovery code wasn't saved.
 - The Vercel runtime logs a Node `DEP0169` `url.parse()` deprecation warning on `/api`. It is harmless today and is not raised by app code.
 - Still to check by hand: listen to the music and sounds, see a Captain Brammer hit, sunk and defeat in production, and play once on a real phone.
+
+## Final QA and submission readiness (23 Oct 2026)
+**Baseline (QA Phase 1):** production served `main` at [`81eeed9`](https://github.com/Richardbrammer23/BrammersBattlefleet/commit/81eeed9), Vercel deployment `READY`. A fresh clone with `npm ci` passed every check:
+- typecheck and lint;
+- Vitest 70/70;
+- build;
+- Playwright 29/29.
+
+**New defect (QA Phase 2):** one, #28. It was fixed in [PR #6](https://github.com/Richardbrammer23/BrammersBattlefleet/pull/6).
+- **Before:** 20 direct API shots were accepted in 72 ms.
+- **After:** a shot within 1.8 s of the last one gets `429 too_fast`. The regression test fails if the check is removed.
+
+**Devin Review on PR #6:** it found one real issue. A repeated or off-board shot inside the gap returned `too_fast` instead of `duplicate` or `out_of_bounds`. It was fixed in [`6f560d8`](https://github.com/Richardbrammer23/BrammersBattlefleet/commit/6f560d8), and the test asserts both cases.
+
+**Checks on PR #6:**
+- Typecheck, lint and build pass.
+- Vitest: 72/72.
+- Playwright: 29/29 (desktop, mobile and 6 phone/tablet layouts).
+
+**Recorded Preview demo of PR #6** ([results on the PR](https://github.com/Richardbrammer23/BrammersBattlefleet/pull/6#issuecomment-6361277902)):
+- Registration with an avatar, two-click placement, and a Devin merge for 9 hits.
+- A genuine win in 8 turns and 1:11.9, ranked #1.
+- The entry showed on the top-20 leaderboard, and Play Again worked.
+- Captain Brammer's replies took 2,001 ms each, and normal play never triggered `too_fast`.
+- 17 API responses, none unexpected.
+
+**Live after the merge:**
+- The production JS bundle contains the new `too_fast` message and the "top 20" title, which confirms the PR #6 code is live.
+- `/api/health` returns 200, and the leaderboard is empty, as the owner asked.
+- HSTS, `X-Frame-Options: DENY`, `nosniff` and `Referrer-Policy` headers are present.
+
+**Secrets audit (QA Phase 8):** scanned all 22 commits on every branch for:
+- Postgres URLs with passwords and Supabase hosts;
+- JWTs, private keys, and GitHub, AWS, Stripe and Vercel tokens;
+- service-role keys.
+
+Results:
+- The only match is the local Docker placeholder `postgres:postgres@localhost`, used in `.env.example`, the README and tests.
+- `.env` files are git-ignored, and no `.env` was ever committed.
+- The live JS bundle contains no database URL, Supabase host, `DATABASE_URL`, service-role value or JWT.
+- Production credentials exist only as Vercel Sensitive environment variables and in the owner's private secret store.
+
+**Assessment: ready for submission once the repository is public.**
+- The game is playable and tested at https://brammers-battlefleet.vercel.app.
+- The README covers setup, rules, the tech stack and deployment.
+- This report documents every bug found during development.
+
+**Outstanding:**
+- The GitHub repository is still **private**: logged-out requests return 404. Only the owner can make it public.
+- Safari and Firefox haven't been run through the automated tests.
+- Whether the music sounds right needs a human listener.

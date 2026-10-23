@@ -8,6 +8,9 @@ Classic Battleship against Captain Brammer, an AI admiral, played three ways. Ea
 | **Code Assist (assisted development)** | 10×10 | Medium (hunt & target) | **Accept** and 3 enemy ship cells are highlighted. **Decline** and only 1 of those 3 is highlighted. Either way you fire every shot yourself. |
 | **Traditional Coding (manual challenge)** | 15×15 | Hard (probability density) | None. |
 
+**Play it:** https://brammers-battlefleet.vercel.app (no sign-up needed)
+**Debugging report:** [`docs/DEBUGGING_REPORT.md`](docs/DEBUGGING_REPORT.md), which lists the bugs found during development, their root causes and fixes, with PR links and test evidence.
+
 > Independent demo. Not affiliated with or endorsed by Cognition. The Devin mark used here is an original, unofficial design. The percentages are game mechanics, not productivity benchmarks.
 
 ## Features
@@ -51,6 +54,15 @@ Measured with `npm run simulate -- 5000`. These are the shots each AI needs to s
 | 15×15 | Hard | 86.5 | 58 | 85 | 121 |
 
 In Traditional mode a human has about 86 turns on average before the Hard AI sinks them, and needs at least 17 hits from 225 cells. It's meant to be hard.
+
+## Technology stack
+
+- **Frontend:** React 19, TypeScript and Vite 7. Audio is synthesised with the Web Audio API, so there are no audio files.
+- **Backend:** one Vercel serverless function (`api/index.ts`) running the API router in `server/`. The Vite dev server mounts the same router locally.
+- **Database:** Postgres through `postgres.js` (Supabase in production, Docker Postgres 16 locally), with row-level security and a least-privilege runtime role.
+- **Game engine:** pure TypeScript in `src/engine/`, shared by the server, the UI and the tests.
+- **Testing:** Vitest for engine unit tests and API/database integration tests, and Playwright for desktop, mobile and six phone/tablet layouts. ESLint and `tsc` handle linting and type-checking.
+- **Hosting:** Vercel. Production deploys from `main`, and every PR gets a Preview. All Previews share one `preview` database schema, which is kept separate from production data.
 
 ## Architecture
 
