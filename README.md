@@ -62,7 +62,7 @@ In Traditional mode a human has about 86 turns on average before the Hard AI sin
 - **Database:** Postgres through `postgres.js` (Supabase in production, Docker Postgres 16 locally), with row-level security and a least-privilege runtime role.
 - **Game engine:** pure TypeScript in `src/engine/`, shared by the server, the UI and the tests.
 - **Testing:** Vitest for engine unit tests and API/database integration tests, and Playwright for desktop, mobile and six phone/tablet layouts. ESLint and `tsc` handle linting and type-checking.
-- **Hosting:** Vercel. Production deploys from `main`, and every PR gets a Preview with its own isolated database schema.
+- **Hosting:** Vercel. Production deploys from `main`, and every PR gets a Preview. All Previews share one `preview` database schema, which is kept separate from production data.
 
 ## Architecture
 

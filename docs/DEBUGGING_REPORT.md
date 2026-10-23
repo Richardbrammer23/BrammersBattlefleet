@@ -21,7 +21,7 @@ Play is server-authoritative:
   - the turn gap and leaderboard ranking.
 - **Browser tests (Playwright):** cover full player journeys on desktop and mobile, plus layout checks on 6 phone and tablet sizes. They use fixed seeds and a fast-AI flag that only work in local test runs.
 - **AI simulation:** `npm run simulate` checks that the AIs get harder from Easy to Medium to Hard.
-- **Isolated Preview checks:** every PR gets a Vercel Preview with its own database schema. Recorded browser play-tests ran there, so the live leaderboard stayed clean.
+- **Isolated Preview checks:** every PR gets a Vercel Preview. All Previews share one `preview` database schema, separate from production. Recorded browser play-tests ran there, so the live leaderboard stayed clean.
 - **Production checks:** smoke tests after merges used throwaway players, which were deleted afterwards.
 - **Bug workflow:** each bug was reproduced first, then given a regression test that failed before the fix where practical. It was fixed on a branch, reviewed in a PR (with Devin Review on the later ones) and merged only with the owner's approval.
 
