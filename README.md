@@ -16,7 +16,7 @@ Classic Battleship against Captain Brammer, an AI admiral, played three ways. Ea
 - The browser remembers you through an HttpOnly session cookie (about 13 months), so returning players go straight back to their profile. A recovery code moves your profile to another browser (no email needed). Lost it? While signed in, open your profile and choose "Show a new recovery code"; the old code stops working. A name alone never signs anyone in.
 - Two-click ship placement (mouse or keyboard): click a ship's first square, then a second square in the direction it should point, and the ship fills in. Squares where the selected ship can't start are greyed out, the directions that fit are shown, and Esc cancels. Randomise and Clear are also available.
 - Server-authoritative games, so the browser never sees the enemy fleet and never submits a score.
-- A public leaderboard (overall and per mode) that shows avatar, name, mode, assistance, human turns, time and date.
+- A public leaderboard (overall and per mode) that lists every verified win, top 20 places, with avatar, name, mode, assistance, human turns, time and date.
 - Personal bests and achievements (Fleet Commander, Sharpshooter, Perfect Streak, Speed Captain, Devin Commander).
 - Synthesised audio: an original nautical shanty with ocean waves on every screen, a sonar ping during battle, and distinct sounds for your hits and misses and for Captain Brammer's. One mute button controls everything.
 - **Play again** from the full leaderboard, which reopens the last mode you played.
@@ -29,7 +29,7 @@ Classic Battleship against Captain Brammer, an AI admiral, played three ways. Ea
 - One shot per turn, alternating with Captain Brammer (the AI). You fire first. He takes about 2 seconds to reply, like a human opponent would. The delay is the same for everyone (reduced motion doesn't shorten it), so ranked times stay comparable.
 - **Human turns** go up by one for each valid shot you fire. These don't count: duplicate or invalid shots, AI shots, and Devin's autonomous merge hits.
 - The **timer** starts when you press *Take command* (after the assistance step) and stops when the game ends.
-- **Ranking:** fewest human turns, then fastest time, then earliest finish. All three are computed on the server. Results are *not* normalised across modes or assistance. That's deliberate, because the leaderboard is meant to show how much the autonomous mode helps.
+- **Ranking:** fewest human turns, then fastest time, then earliest finish. All three are computed on the server, which also enforces Captain Brammer's ~2 s reply time so it can't be skipped by calling the API directly. Results are *not* normalised across modes or assistance. That's deliberate, because the leaderboard is meant to show how much the autonomous mode helps.
 
 ## The AI opponents
 

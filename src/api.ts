@@ -79,6 +79,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   if (token) headers.Authorization = `Bearer ${token}`;
   const seed = sessionStorage.getItem('bbf.testSeed');
   if (seed) headers['X-Test-Seed'] = seed;
+  if (sessionStorage.getItem('bbf.fastAi') === '1') headers['X-Test-Fast-Turns'] = '1';
   let res: Response;
   try {
     res = await fetch(`/api${path}`, { method, headers, credentials: 'same-origin', body: body === undefined ? undefined : JSON.stringify(body) });
@@ -123,6 +124,7 @@ const MESSAGES: Record<string, string> = {
   unauthorised: 'You are signed out. Sign in with your recovery code or create a profile.',
   forbidden: 'That request was blocked. Please reload the page.',
   game_abandoned: 'This game was replaced by a newer one.',
+  too_fast: 'Captain Brammer is still taking his turn. Try again in a moment.',
 };
 export const errorMessage = (e: unknown) =>
   e instanceof ApiError ? (MESSAGES[e.code] ?? `Something went wrong (${e.code}).`) : 'Something went wrong.';

@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 process.env.DATABASE_URL ??= 'postgres://postgres:postgres@localhost:54329/postgres';
 process.env.ALLOW_TEST_SEED = '1';
 
-const { handleApi } = await import('./api.js');
+const { handleApi, MIN_TURN_GAP_MS, LEADERBOARD_MAX } = await import('./api.js');
 const { db, closeDb } = await import('./db.js');
 const { DEFAULT_AVATAR } = await import('../src/avatar/options.js');
 const { createGame, shipCells, key } = await import('../src/engine/index.js');
@@ -20,13 +20,15 @@ const FLEET = [
 
 let ipCounter = 0;
 let nameCounter = 0;
-type CallOpts = { token?: string; cookie?: string; contentType?: string; proto?: string; body?: unknown; seed?: number; ip?: string; query?: Record<string, string> };
+type CallOpts = { token?: string; cookie?: string; contentType?: string; proto?: string; body?: unknown; seed?: number; ip?: string; query?: Record<string, string>; realTurns?: boolean };
 async function call(method: string, path: string, opts: CallOpts = {}) {
   const headers: Record<string, string> = { 'content-type': opts.contentType ?? 'application/json' };
   if (opts.token) headers.authorization = `Bearer ${opts.token}`;
   if (opts.cookie !== undefined) headers.cookie = `theme=dark; bbf_session=${opts.cookie}`;
   if (opts.proto) headers['x-forwarded-proto'] = opts.proto;
   if (opts.seed != null) headers['x-test-seed'] = String(opts.seed);
+  // Tests skip Captain Brammer's 2 s turn gap unless they are testing it.
+  if (!opts.realTurns) headers['x-test-fast-turns'] = '1';
   return handleApi({ method, path, headers, query: opts.query ?? {}, body: opts.body, ip: opts.ip ?? `10.0.${++ipCounter}.1` });
 }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -210,6 +212,36 @@ describe('server-authoritative games', () => {
     expect(game.aiShots).toHaveLength(1);
   });
 
+  it("enforces Captain Brammer's turn gap on the server, so scripted clients can't skip it", async () => {
+    const p = await newPlayer();
+    const g = b(await call('POST', '/games', { token: p.token, body: { mode: 'traditional', fleet: FLEET } }));
+    await call('POST', `/games/${g.id}/start`, { token: p.token });
+    const fire = (r: number, c: number) => call('POST', `/games/${g.id}/fire`, { token: p.token, body: { r, c }, realTurns: true });
+    expect((await fire(14, 14)).status).toBe(200);
+    const tooFast = await fire(14, 13);
+    expect(tooFast.status).toBe(429);
+    expect(b(tooFast).error).toBe('too_fast');
+    let game = b(await call('GET', `/games/${g.id}`, { token: p.token })).game;
+    expect(game.humanTurns).toBe(1);
+    expect(game.aiShots).toHaveLength(1);
+    expect(game).not.toHaveProperty('lastShotAt');
+
+    // Once Captain Brammer's reply is older than the gap, the next shot is accepted.
+    await db()`update games set state = jsonb_set(state, '{lastShotAt}', to_jsonb((state->>'lastShotAt')::bigint - ${MIN_TURN_GAP_MS})) where id = ${g.id}`;
+    expect((await fire(14, 13)).status).toBe(200);
+    game = b(await call('GET', `/games/${g.id}`, { token: p.token })).game;
+    expect(game.humanTurns).toBe(2);
+
+    // The test-only bypass header is ignored unless test hooks are enabled.
+    process.env.ALLOW_TEST_SEED = '0';
+    try {
+      const r = await call('POST', `/games/${g.id}/fire`, { token: p.token, body: { r: 14, c: 12 } });
+      expect(r.status).toBe(429);
+    } finally {
+      process.env.ALLOW_TEST_SEED = '1';
+    }
+  });
+
   it("players cannot see or play another player's game", async () => {
     const a = await newPlayer();
     const c = await newPlayer();
@@ -291,6 +323,26 @@ describe('leaderboard', () => {
     await db()`update players set display_name = 'Bobby' where id = ${bobEntry.playerId}`;
     const lb2 = b(await call('GET', '/leaderboard', {}));
     expect(lb2.entries.filter((e: { playerId: string }) => e.playerId === bobEntry.playerId).map((e: { displayName: string }) => e.displayName)).toEqual(['Bobby']);
+  });
+
+  it('lists every win, including several from one player, capped at 20 places', async () => {
+    await db()`truncate games, achievements cascade`;
+    const p = await newPlayer('Grinder');
+    const q = await newPlayer('Rival');
+    await db()`
+      insert into games (player_id, mode, phase, state, assistance_status, human_turns, duration_ms, ended_at)
+      select case when i % 2 = 0 then ${p.player.id}::uuid else ${q.player.id}::uuid end, 'traditional', 'won', '{}'::jsonb, 'No assistance', 20 + i, 60000, now()
+      from generate_series(1, 25) as i`;
+    for (const limit of [undefined, '20', '100']) {
+      const lb = b(await call('GET', '/leaderboard', { query: limit ? { limit } : {} }));
+      expect(lb.entries).toHaveLength(LEADERBOARD_MAX);
+      expect(lb.total).toBe(25);
+      expect(lb.entries.map((e: { rank: number }) => e.rank)).toEqual(Array.from({ length: 20 }, (_, i) => i + 1));
+    }
+    const lb = b(await call('GET', '/leaderboard', { query: { limit: '5' } }));
+    expect(lb.entries).toHaveLength(5);
+    expect(new Set(lb.entries.map((e: { playerId: string }) => e.playerId)).size).toBe(2);
+    await db()`truncate games, achievements cascade`;
   });
 });
 

@@ -147,7 +147,7 @@ export default function App() {
               {lastMode ? `Play again — ${modeName(lastMode)}` : 'Play now'}
             </button>
           </div>
-          <Leaderboard limit={100} title="All verified victories (top 100)" />
+          <Leaderboard limit={20} title="All verified victories (top 20)" />
         </main>
       )}
       {screen.name === 'profile' && <Profile player={player} onSaved={setPlayer} onBack={() => go({ name: 'home' })} />}
