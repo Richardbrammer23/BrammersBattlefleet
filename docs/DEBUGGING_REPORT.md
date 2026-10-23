@@ -9,7 +9,7 @@ Every defect below was actually hit during development and fixed. None were inve
 | Type check | `npm run typecheck` | Pass, 0 errors |
 | Lint | `npm run lint` | Pass, 0 problems |
 | Unit + API/DB tests | `npm test` | **70 / 70 passed** (39 engine, 31 API) |
-| Browser tests | `npm run test:e2e` | **28 / 28 passed** (21 desktop at 1440×900, 1 mobile on Pixel 7, 6 phone/tablet layout runs) |
+| Browser tests | `npm run test:e2e` | **29 / 29 passed** (22 desktop at 1440×900, 1 mobile on Pixel 7, 6 phone/tablet layout runs) |
 | Production build | `npm run build` | Pass. JS 250 kB (79 kB gzip), CSS 23 kB |
 | AI simulation | `npm run simulate -- 5000` | See below |
 
@@ -257,6 +257,12 @@ The difficulty order holds (Easy > Medium > Hard shots needed) on both board siz
 - **Cause:** nothing listened for the page losing visibility or focus.
 - **Fix:** when the tab is hidden, the window loses focus or the page is closed, the audio is suspended, and it resumes when the player comes back. It picks up where it left off; it doesn't restart. Clicking into the browser's address bar also counts as leaving.
 - **Evidence:** the browser test switches tab (`visibilitychange`) and switches app (window `blur`). Each time the audio is `suspended` while away and `running` again on return.
+
+### 27. Typing a name or tapping a text field didn't start the music (audio UX)
+- **Symptom:** reported by the user on PR #5. If the player tapped the name box or started typing, the music didn't start. It only started after a tap somewhere else on the screen.
+- **Cause:** the first `pointerdown`, `keydown` or `touchend` set an "unlocked" flag and removed all the listeners, whether or not the browser had actually let the `AudioContext` start. On phones a finger's `pointerdown` is not a gesture browsers accept for sound (its `touchend` is), so the very first touch used up the listeners while the audio stayed suspended. Later taps and keystrokes in the text field had nothing listening. Tapping a button still worked only because the button's click sound called `resume()` itself. The status also wrongly reported "playing".
+- **Fix:** every tap, click and keystroke now asks for sound (`pointerdown`, `pointerup`, `mousedown`, `click`, `touchstart`, `touchend`, `keydown`, `keyup` and `input`, listened for in the capture phase so text fields and components can't swallow them). The game only counts sound as unlocked once the `AudioContext` state is really `running`, and the listeners are removed only then. Rejected `resume()`/`suspend()` promises are caught.
+- **Evidence:** new test in `e2e/sound.spec.ts`. It fires a touch `pointerdown` the browser doesn't accept before the page is touched, then focuses the name box and types. Before the fix it failed with `data-sound` showing "playing" while the context was still suspended. After the fix it passes, showing `playing`/`running` with the hint gone.
 
 ### Recovery code on the profile (feature, 21 Oct 2026)
 - Recovery codes are stored only as SHA-256 hashes, so the original can't be shown again. With the owner's choice, the profile has a "Show a new recovery code" button instead. After a confirm step, `POST /api/players/me/recovery-code` replaces the stored hash and returns the new code once, with Copy and Download. The old code stops working immediately; the current browser session is untouched.

@@ -70,29 +70,38 @@ function audio(): AudioContext | null {
     });
     if (ctx.state === 'running') queueMicrotask(unlock);
   }
-  if (ctx.state === 'suspended' && !away) void ctx.resume();
+  if (ctx.state === 'suspended' && !away) ctx.resume().catch(() => {});
   return ctx;
 }
 
 function unlock() {
   if (unlocked) return;
   unlocked = true;
-  for (const e of GESTURES) window.removeEventListener(e, unlock);
+  for (const e of GESTURES) window.removeEventListener(e, askForSound, GESTURE_OPTS);
   syncAmbience();
 }
 
-const GESTURES = ['pointerdown', 'keydown', 'touchend'] as const;
+/**
+ * Browsers only grant sound for some gestures (a finger's pointerdown doesn't count, its touchend does),
+ * so ask again on every tap, click or keystroke - including in text fields - until audio is really running.
+ */
+const GESTURES = ['pointerdown', 'pointerup', 'mousedown', 'click', 'touchstart', 'touchend', 'keydown', 'keyup', 'input'] as const;
+const GESTURE_OPTS = { capture: true, passive: true } as const;
+
+function askForSound() {
+  if (!unlocked) audio();
+}
 
 /** Pause everything while the game isn't in view (other tab, minimised window, another app); resume on return. */
 function setAway(a: boolean) {
   if (away === a) return;
   away = a;
-  if (ctx && unlocked) void (a ? ctx.suspend() : ctx.resume());
+  if (ctx && unlocked) (a ? ctx.suspend() : ctx.resume()).catch(() => {});
   publish();
 }
 
 if (typeof window !== 'undefined') {
-  for (const e of GESTURES) window.addEventListener(e, unlock);
+  for (const e of GESTURES) window.addEventListener(e, askForSound, GESTURE_OPTS);
   document.addEventListener('visibilitychange', () => setAway(document.hidden));
   window.addEventListener('blur', () => setAway(true));
   window.addEventListener('focus', () => setAway(document.hidden));

@@ -50,3 +50,19 @@ test('no sound hint for a player who has muted the game', async ({ page }) => {
   await expect(status(page)).toHaveAttribute('data-sound', 'muted');
   await expect(page.getByTestId('sound-hint')).toBeHidden();
 });
+
+test('typing a name counts as the first tap, even after a touch the browser did not accept for sound', async ({ page }) => {
+  // On phones a touch's pointerdown does not unlock audio (its touchend does). Fire one before Playwright touches the page.
+  await page.addInitScript(() => {
+    document.addEventListener('DOMContentLoaded', () => window.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch' })));
+  });
+  await page.goto('/');
+  await expect(status(page)).toHaveAttribute('data-sound', 'blocked');
+  await expect(page.getByTestId('sound-hint')).toBeVisible();
+
+  await page.getByLabel('Display name').focus();
+  await page.keyboard.type('Rich');
+  await expect(status(page)).toHaveAttribute('data-sound', 'playing');
+  await expect(status(page)).toHaveAttribute('data-audio-context', 'running');
+  await expect(page.getByTestId('sound-hint')).toBeHidden();
+});
