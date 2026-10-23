@@ -408,3 +408,5 @@ tr.mine td { background: rgba(45, 226, 176, 0.1); }
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
   .sweep { display: none; }
 }
+
+.sound-hint { position: fixed; left: 1rem; bottom: 1rem; z-index: 45; display: flex; align-items: center; gap: 0.45rem; min-height: 36px; padding: 0.45rem 0.9rem; border-radius: 999px; background: rgba(15, 42, 74, 0.94); border: 1px solid var(--radar); color: var(--radar); font-weight: 600; font-size: 0.85rem; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45); animation: toastIn 0.25s ease-out; }

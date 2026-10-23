@@ -9,7 +9,7 @@ Every defect below was actually hit during development and fixed. None were inve
 | Type check | `npm run typecheck` | Pass, 0 errors |
 | Lint | `npm run lint` | Pass, 0 problems |
 | Unit + API/DB tests | `npm test` | **70 / 70 passed** (39 engine, 31 API) |
-| Browser tests | `npm run test:e2e` | **25 / 25 passed** (18 desktop at 1440×900, 1 mobile on Pixel 7, 6 phone/tablet layout runs) |
+| Browser tests | `npm run test:e2e` | **29 / 29 passed** (22 desktop at 1440×900, 1 mobile on Pixel 7, 6 phone/tablet layout runs) |
 | Production build | `npm run build` | Pass. JS 250 kB (79 kB gzip), CSS 23 kB |
 | AI simulation | `npm run simulate -- 5000` | See below |
 
@@ -246,6 +246,24 @@ The difficulty order holds (Easy > Medium > Hard shots needed) on both board siz
 - **Fix:** the same container sizing as #22. Phones held sideways also size the board from the screen height, so the whole board fits on a 340 px tall screen once scrolled to it.
 - **Evidence:** the breakpoint test passes on iPad Mini landscape and iPhone 14 landscape.
 
+### 25. Music only started after a click, with nothing telling the player why (audio UX)
+- **Symptom (owner report):** no music when the site first opened; it began only after clicking the page.
+- **Cause:** browsers block sound until the visitor clicks, taps or presses a key. The game didn't even try to start the audio until that first gesture, so browsers that would have allowed it (Chrome on a site the visitor often plays sound on, or Safari or Firefox with autoplay allowed) stayed silent too. No website can override the browser's block.
+- **Fix:** the audio now starts as the page loads. If the browser holds it back, a "Tap anywhere for sound" hint appears and the music starts on the first tap, click or key press anywhere. The hint isn't shown when the game is muted. Firefox's `navigator.getAutoplayPolicy` is checked first, so no audio is created when autoplay is known to be blocked.
+- **Evidence:** in Chromium with autoplay allowed (`--autoplay-policy=no-user-gesture-required`), the music is playing on load with no input (`e2e/sound-autoplay.spec.ts`). With the default policy, the hint shows, one click starts the audio (state `running`) and the hint disappears. A muted player sees no hint (`e2e/sound.spec.ts`).
+
+### 26. Music kept playing after leaving the game on desktop (audio UX)
+- **Symptom (owner report):** the music and sonar carried on when the player switched tab, window or application.
+- **Cause:** nothing listened for the page losing visibility or focus.
+- **Fix:** when the tab is hidden, the window loses focus or the page is closed, the audio is suspended, and it resumes when the player comes back. It picks up where it left off; it doesn't restart. Clicking into the browser's address bar also counts as leaving.
+- **Evidence:** the browser test switches tab (`visibilitychange`) and switches app (window `blur`). Each time the audio is `suspended` while away and `running` again on return.
+
+### 27. Typing a name or tapping a text field didn't start the music (audio UX)
+- **Symptom:** reported by the user on PR #5. If the player tapped the name box or started typing, the music didn't start. It only started after a tap somewhere else on the screen.
+- **Cause:** the first `pointerdown`, `keydown` or `touchend` set an "unlocked" flag and removed all the listeners, whether or not the browser had actually let the `AudioContext` start. On phones a finger's `pointerdown` is not a gesture browsers accept for sound (its `touchend` is), so the very first touch used up the listeners while the audio stayed suspended. Later taps and keystrokes in the text field had nothing listening. Tapping a button still worked only because the button's click sound called `resume()` itself. The status also wrongly reported "playing".
+- **Fix:** every tap, click and keystroke now asks for sound (`pointerdown`, `pointerup`, `mousedown`, `click`, `touchstart`, `touchend`, `keydown`, `keyup` and `input`, listened for in the capture phase so text fields and components can't swallow them). The game only counts sound as unlocked once the `AudioContext` state is really `running`, and the listeners are removed only then. Rejected `resume()`/`suspend()` promises are caught.
+- **Evidence:** new test in `e2e/sound.spec.ts`. It fires a touch `pointerdown` the browser doesn't accept before the page is touched, then focuses the name box and types. Before the fix it failed with `data-sound` showing "playing" while the context was still suspended. After the fix it passes, showing `playing`/`running` with the hint gone.
+
 ### Recovery code on the profile (feature, 21 Oct 2026)
 - Recovery codes are stored only as SHA-256 hashes, so the original can't be shown again. With the owner's choice, the profile has a "Show a new recovery code" button instead. After a confirm step, `POST /api/players/me/recovery-code` replaces the stored hash and returns the new code once, with Copy and Download. The old code stops working immediately; the current browser session is untouched.
 - The endpoint needs the session cookie, rejects non-JSON requests (CSRF), and is limited to 10 new codes per player per hour. The code is never written to `localStorage` or logs.
@@ -262,7 +280,7 @@ The difficulty order holds (Easy > Medium > Hard shots needed) on both board siz
 ## Known limitations
 - Rate limiting reduces "restart until you get a lucky board" but can't fully stop it.
 - Clearing browser data without a saved recovery code loses the profile. While signed in, a new code can be made from the profile at any time.
-- Sound needs a user gesture first (browser autoplay policy).
+- Browsers that block autoplay (the default for a first visit) still need one tap, click or key press before any sound. The game shows a hint and starts the music on that first gesture.
 - Vercel's team alias `brammers-battlefleet-richard-brammr.vercel.app` is behind Vercel Authentication. Use the production URL below.
 
 ## Live verification (production)
