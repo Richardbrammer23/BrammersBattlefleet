@@ -221,6 +221,9 @@ describe('server-authoritative games', () => {
     const tooFast = await fire(14, 13);
     expect(tooFast.status).toBe(429);
     expect(b(tooFast).error).toBe('too_fast');
+    // Shots that break the rules report the rule, not "too fast", since retrying won't help.
+    expect(b(await fire(14, 14)).error).toBe('duplicate');
+    expect(b(await fire(15, 0)).error).toBe('out_of_bounds');
     let game = b(await call('GET', `/games/${g.id}`, { token: p.token })).game;
     expect(game.humanTurns).toBe(1);
     expect(game.aiShots).toHaveLength(1);

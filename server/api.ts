@@ -323,10 +323,9 @@ async function fireRoute(req: ApiRequest, id: string) {
   const coord = { r: Number(b.r), c: Number(b.c) };
   const fast = fastTurns(req);
   const r = await mutateGame(req, id, (s, now) => {
-    if (!fast && s.phase === 'playing' && s.lastShotAt != null && now - s.lastShotAt < MIN_TURN_GAP_MS) {
-      throw new HttpError(429, 'too_fast');
-    }
+    // Rule errors (wrong phase, duplicate, out of bounds) take precedence: retrying won't fix them.
     const out = unwrap(fire(s, coord, now));
+    if (!fast && s.lastShotAt != null && now - s.lastShotAt < MIN_TURN_GAP_MS) throw new HttpError(429, 'too_fast');
     return { state: { ...out.state, lastShotAt: now }, extra: { playerShot: out.playerShot, aiShot: out.aiShot } };
   });
   const rank = r.victory ? await rankOf(id) : null;
