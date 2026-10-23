@@ -8,7 +8,7 @@ Every defect below was actually hit during development and fixed. None were inve
 | --- | --- | --- |
 | Type check | `npm run typecheck` | Pass, 0 errors |
 | Lint | `npm run lint` | Pass, 0 problems |
-| Unit + API/DB tests | `npm test` | **70 / 70 passed** (39 engine, 31 API) |
+| Unit + API/DB tests | `npm test` | **72 / 72 passed** (39 engine, 33 API) |
 | Browser tests | `npm run test:e2e` | **29 / 29 passed** (22 desktop at 1440×900, 1 mobile on Pixel 7, 6 phone/tablet layout runs) |
 | Production build | `npm run build` | Pass. JS 250 kB (79 kB gzip), CSS 23 kB |
 | AI simulation | `npm run simulate -- 5000` | See below |
@@ -264,6 +264,17 @@ The difficulty order holds (Easy > Medium > Hard shots needed) on both board siz
 - **Fix:** every tap, click and keystroke now asks for sound (`pointerdown`, `pointerup`, `mousedown`, `click`, `touchstart`, `touchend`, `keydown`, `keyup` and `input`, listened for in the capture phase so text fields and components can't swallow them). The game only counts sound as unlocked once the `AudioContext` state is really `running`, and the listeners are removed only then. Rejected `resume()`/`suspend()` promises are caught.
 - **Evidence:** new test in `e2e/sound.spec.ts`. It fires a touch `pointerdown` the browser doesn't accept before the page is touched, then focuses the name box and types. Before the fix it failed with `data-sound` showing "playing" while the context was still suspended. After the fix it passes, showing `playing`/`running` with the hint gone.
 
+### 28. Captain Brammer's 2-second turn could be skipped by calling the API directly (leaderboard fairness)
+- **Found by:** the final QA pass (Phase 2), with a direct API check on the local server. 20 shots sent straight to `POST /api/games/:id/fire` were all accepted in 72 ms, with Captain Brammer replying to every one.
+- **Expected:** every player waits about 2 s per turn while Captain Brammer replies, so recorded times are comparable.
+- **Cause:** the 2 s pause was only a `setTimeout` in `src/ui/Battle.tsx`. The server resolved the reply instantly and had no minimum gap between turns. A scripted client could record a shorter `duration_ms`, which helps in the time tie-breaker and with Speed Captain. Turn counts were never affected, because the enemy fleet stays on the server.
+- **Fix:** the server stores the time of each shot in the game state (`lastShotAt`, never sent to the browser). It rejects the next shot with `429 too_fast` if it arrives less than 1.8 s after Captain Brammer's previous reply; the margin allows for network lag. The UI already waits 2 s, so normal play is unchanged. Local test runs can skip the gap with an `X-Test-Fast-Turns` header, which is only honoured when `ALLOW_TEST_SEED=1` and `NODE_ENV` isn't `production`, the same guard as test seeds.
+- **Evidence:** a new API test fires twice in a row and gets 200 then 429 `too_fast`, with only one turn and one Captain Brammer reply counted. Once the previous reply is older than the gap, the shot is accepted. The bypass header is ignored when test hooks are off.
+
+### Leaderboard limited to 20 places (owner request, final QA)
+- The leaderboard still lists every verified win, including several from the same player, but now stops at 20 places. The full leaderboard page shows the top 20, and the API caps `limit` at 20. The compact panels (home, battle, results) still show the top 10.
+- **Evidence:** a new API test seeds 25 wins from two players. Requests with no limit, `limit=20` and `limit=100` each return exactly 20 entries ranked 1–20, with `total` still 25.
+
 ### Recovery code on the profile (feature, 21 Oct 2026)
 - Recovery codes are stored only as SHA-256 hashes, so the original can't be shown again. With the owner's choice, the profile has a "Show a new recovery code" button instead. After a confirm step, `POST /api/players/me/recovery-code` replaces the stored hash and returns the new code once, with Copy and Download. The old code stops working immediately; the current browser session is untouched.
 - The endpoint needs the session cookie, rejects non-JSON requests (CSRF), and is limited to 10 new codes per player per hour. The code is never written to `localStorage` or logs.
@@ -272,6 +283,7 @@ The difficulty order holds (Easy > Medium > Hard shots needed) on both board siz
 ## Security review summary
 - The enemy fleet and unused assistance targets never leave the server while a game is active (engine test plus `publicGame()`).
 - Scores, turns, time and rank are computed on the server. The client never submits them.
+- Captain Brammer's turn gap is enforced on the server (at least 1.8 s between shots), so times can't be cut by skipping the UI.
 - Row locks prevent duplicate PR merges and simultaneous duplicate shots (concurrency API tests send parallel requests).
 - Tokens are stored only as hashes. Recovery rotates the session and invalidates the old one.
 - The test seed is accepted only when `ALLOW_TEST_SEED=1` and not in production (API test).

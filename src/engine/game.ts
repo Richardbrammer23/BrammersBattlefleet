@@ -26,6 +26,8 @@ export interface GameState {
   rngState: number;
   startedAt: number | null;
   endedAt: number | null;
+  /** Server time of the last human shot (and Captain Brammer's reply). Set by the API. */
+  lastShotAt?: number;
 }
 
 export type GameError =

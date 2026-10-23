@@ -117,11 +117,18 @@ const isNameTaken = (e: unknown) => {
 
 const publicPlayer = (p: PlayerRow) => ({ id: p.id, displayName: p.display_name, avatar: p.avatar });
 
+const testHooksAllowed = () => process.env.ALLOW_TEST_SEED === '1' && process.env.NODE_ENV !== 'production';
+
 function testSeed(req: ApiRequest): number | null {
-  const allowed = process.env.ALLOW_TEST_SEED === '1' && process.env.NODE_ENV !== 'production';
   const raw = req.headers['x-test-seed'];
-  return allowed && raw && /^\d+$/.test(raw) ? Number(raw) >>> 0 : null;
+  return testHooksAllowed() && raw && /^\d+$/.test(raw) ? Number(raw) >>> 0 : null;
 }
+
+/** Captain Brammer takes ~2 s per reply in the UI; the server enforces it so scripted clients can't skip it. */
+export const MIN_TURN_GAP_MS = 1800;
+const fastTurns = (req: ApiRequest) => testHooksAllowed() && req.headers['x-test-fast-turns'] === '1';
+
+export const LEADERBOARD_MAX = 20;
 
 // ---------- players ----------
 
@@ -314,9 +321,12 @@ async function startRoute(req: ApiRequest, id: string) {
 async function fireRoute(req: ApiRequest, id: string) {
   const b = body(req);
   const coord = { r: Number(b.r), c: Number(b.c) };
+  const fast = fastTurns(req);
   const r = await mutateGame(req, id, (s, now) => {
+    // Rule errors (wrong phase, duplicate, out of bounds) take precedence: retrying won't fix them.
     const out = unwrap(fire(s, coord, now));
-    return { state: out.state, extra: { playerShot: out.playerShot, aiShot: out.aiShot } };
+    if (!fast && s.lastShotAt != null && now - s.lastShotAt < MIN_TURN_GAP_MS) throw new HttpError(429, 'too_fast');
+    return { state: { ...out.state, lastShotAt: now }, extra: { playerShot: out.playerShot, aiShot: out.aiShot } };
   });
   const rank = r.victory ? await rankOf(id) : null;
   return ok({ id, game: publicGame(r.state), ...r.extra, victory: r.victory ? { ...r.victory, rank } : null });
@@ -334,7 +344,7 @@ async function abandonRoute(req: ApiRequest, id: string) {
 async function leaderboard(req: ApiRequest) {
   const mode = req.query.mode && req.query.mode !== 'overall' ? req.query.mode : null;
   if (mode && !isMode(mode)) throw new HttpError(400, 'invalid_mode');
-  const lim = Math.min(Math.max(Number(req.query.limit) || 10, 1), 100);
+  const lim = Math.min(Math.max(Number(req.query.limit) || LEADERBOARD_MAX, 1), LEADERBOARD_MAX);
   const rows = await db()`
     select g.id, p.id as player_id, p.display_name, p.avatar, g.mode, g.assistance_status, g.human_turns, g.duration_ms, g.ended_at,
       row_number() over (order by g.human_turns, g.duration_ms, g.ended_at, g.id)::int as rank
